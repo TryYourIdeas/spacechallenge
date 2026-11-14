@@ -1,0 +1,18 @@
+{
+  "fields": [
+    { "key": "name", "label": "Name", "type": "string" },
+    { "key": "country", "label": "Country", "type": "string" },
+    { "key": "operator", "label": "Operator", "type": "string" },
+    { "key": "first_launch", "label": "First launch year", "type": "number" }
+  ],
+  "rows": [
+    { "id": "ksc", "name": "Kennedy Space Center LC-39", "country": "United States", "operator": "NASA", "first_launch": 1967, "latitude": 28.5729, "longitude": -80.649 },
+    { "id": "vsfb", "name": "Vandenberg SFB", "country": "United States", "operator": "US Space Force", "first_launch": 1958, "latitude": 34.742, "longitude": -120.572 },
+    { "id": "starbase", "name": "Starbase", "country": "United States", "operator": "SpaceX", "first_launch": 2019, "latitude": 25.997, "longitude": -97.157 },
+    { "id": "kourou", "name": "Guiana Space Centre", "country": "France (French Guiana)", "operator": "CNES / ESA", "first_launch": 1968, "latitude": 5.236, "longitude": -52.775 },
+    { "id": "baikonur", "name": "Baikonur Cosmodrome", "country": "Kazakhstan", "operator": "Roscosmos", "first_launch": 1957, "latitude": 45.965, "longitude": 63.305 },
+    { "id": "jiuquan", "name": "Jiuquan Satellite Launch Center", "country": "China", "operator": "CNSA", "first_launch": 1970, "latitude": 40.958, "longitude": 100.291 },
+    { "id": "sriharikota", "name": "Satish Dhawan Space Centre", "country": "India", "operator": "ISRO", "first_launch": 1971, "latitude": 13.72, "longitude": 80.23 },
+    { "id": "tanegashima", "name": "Tanegashima Space Center", "country": "Japan", "operator": "JAXA", "first_launch": 1975, "latitude": 30.4, "longitude": 130.97 }
+  ]
+}

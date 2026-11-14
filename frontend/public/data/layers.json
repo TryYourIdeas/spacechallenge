@@ -1,0 +1,7 @@
+{
+  "layers": [
+    { "id": "launch-sites", "label": "Launch sites", "description": "Orbital launch complexes", "shape": "triangle", "color": "#00E5FF", "source": "launch-sites.json" },
+    { "id": "ground-stations", "label": "Ground stations", "description": "Deep-space tracking antennas", "shape": "square", "color": "#B79CFF", "source": "ground-stations.json" },
+    { "id": "meteorites", "label": "Meteorite finds", "description": "Notable recovered meteorites", "shape": "diamond", "color": "#FFB454", "source": "meteorites.json" }
+  ]
+}

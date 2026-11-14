@@ -1,0 +1,40 @@
+:root {
+  --color-bg-deep-space: #05070d;
+  --color-surface: #0b1020;
+  --color-surface-raised: #121a30;
+  --color-border: #243051;
+  --color-text-primary: #eef2ff;
+  --color-text-secondary: #a3afcf;
+  --color-accent-arctic-cyan: #00e5ff;
+  --color-accent-royal-purple: #7851a9;
+  --color-danger: #ff7a90;
+  --font-sans: 'Geist Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --radius: 10px;
+  --focus-ring: 0 0 0 3px var(--color-bg-deep-space), 0 0 0 5px var(--color-accent-arctic-cyan);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #__nuxt { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--color-bg-deep-space);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  .leaflet-zoom-anim .leaflet-zoom-animated { transition: none !important; }
+}

@@ -1,0 +1,16 @@
+{
+  "fields": [
+    { "key": "name", "label": "Name", "type": "string" },
+    { "key": "network", "label": "Network", "type": "string" },
+    { "key": "antenna_m", "label": "Largest antenna", "type": "number", "unit": "m" },
+    { "key": "elevation_m", "label": "Elevation", "type": "number", "unit": "m" }
+  ],
+  "rows": [
+    { "id": "goldstone", "name": "Goldstone", "network": "NASA DSN", "antenna_m": 70, "elevation_m": 900, "latitude": 35.4267, "longitude": -116.89 },
+    { "id": "madrid", "name": "Madrid", "network": "NASA DSN", "antenna_m": 70, "elevation_m": 720, "latitude": 40.4314, "longitude": -4.2481 },
+    { "id": "canberra", "name": "Canberra", "network": "NASA DSN", "antenna_m": 70, "elevation_m": 680, "latitude": -35.4014, "longitude": 148.9817 },
+    { "id": "kiruna", "name": "Kiruna", "network": "ESA ESTRACK", "antenna_m": 15, "elevation_m": 390, "latitude": 67.857, "longitude": 20.964 },
+    { "id": "malindi", "name": "Malindi", "network": "ESA ESTRACK", "antenna_m": 15, "elevation_m": 12, "latitude": -2.996, "longitude": 40.194 },
+    { "id": "new-norcia", "name": "New Norcia", "network": "ESA ESTRACK", "antenna_m": 35, "elevation_m": 252, "latitude": -31.048, "longitude": 116.191 }
+  ]
+}

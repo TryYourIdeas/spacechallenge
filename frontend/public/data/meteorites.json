@@ -1,0 +1,16 @@
+{
+  "fields": [
+    { "key": "name", "label": "Name", "type": "string" },
+    { "key": "classification", "label": "Classification", "type": "string" },
+    { "key": "year", "label": "Year found or fell", "type": "number" },
+    { "key": "mass_kg", "label": "Approx. mass", "type": "number", "unit": "kg" }
+  ],
+  "rows": [
+    { "id": "hoba", "name": "Hoba", "classification": "Iron (IVB)", "year": 1920, "mass_kg": 60000, "latitude": -19.5833, "longitude": 17.9167 },
+    { "id": "campo-del-cielo", "name": "Campo del Cielo", "classification": "Iron (IAB)", "year": 1576, "mass_kg": 37000, "latitude": -27.6667, "longitude": -61.7 },
+    { "id": "willamette", "name": "Willamette", "classification": "Iron (IIIAB)", "year": 1902, "mass_kg": 15500, "latitude": 45.3667, "longitude": -122.6 },
+    { "id": "allende", "name": "Allende", "classification": "Carbonaceous chondrite (CV3)", "year": 1969, "mass_kg": 2000, "latitude": 26.97, "longitude": -105.32 },
+    { "id": "murchison", "name": "Murchison", "classification": "Carbonaceous chondrite (CM2)", "year": 1969, "mass_kg": 100, "latitude": -36.6167, "longitude": 145.2 },
+    { "id": "chelyabinsk", "name": "Chelyabinsk", "classification": "Ordinary chondrite (LL5)", "year": 2013, "mass_kg": 650, "latitude": 54.8, "longitude": 61.1 }
+  ]
+}
