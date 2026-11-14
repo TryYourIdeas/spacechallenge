@@ -1,0 +1,56 @@
+DATA SOURCES
+Retrieved: 2026-11-14
+
+Catalog used to find the sources
+  Open Data Atlas (Space Apps)
+  Page:  https://space-apps-data-atlas.rolimfrank.chatgpt.site/
+  Index: https://space-apps-data-atlas.rolimfrank.chatgpt.site/data.json
+
+----------------------------------------------------------------------
+1. temperatura_terra.csv  -  Global 2 m air temperature (T2M)
+----------------------------------------------------------------------
+  Dataset:  NASA POWER, MERRA-2 Temperature at 2 Meters (C)
+  Product:  Monthly and annual climatology, Jan 2001 - Dec 2025 (average, no year column)
+  Grid:     0.5 deg lat x 0.625 deg lon, global, 207,936 cells
+  Home:     https://power.larc.nasa.gov/
+  Docs:     https://power.larc.nasa.gov/docs/services/api/
+  API used: https://power.larc.nasa.gov/api/temporal/climatology/regional?parameters=T2M&community=RE&latitude-min=<lat>&latitude-max=<lat+10>&longitude-min=<lon>&longitude-max=<lon+10>&format=CSV
+            (648 tiles of 10x10 deg, merged)
+  Access:   no registration
+
+----------------------------------------------------------------------
+2. precipitacao_terra.csv  -  Global precipitation (PRECTOTCORR)
+----------------------------------------------------------------------
+  Dataset:  NASA POWER, MERRA-2 Precipitation Corrected (mm/day)
+  Product:  Monthly and annual climatology, Jan 2001 - Dec 2025 (average, no year column)
+  Grid:     0.5 deg lat x 0.625 deg lon, global, 207,936 cells
+  Home:     https://power.larc.nasa.gov/
+  Docs:     https://power.larc.nasa.gov/docs/services/api/
+  API used: https://power.larc.nasa.gov/api/temporal/climatology/regional?parameters=PRECTOTCORR&community=RE&latitude-min=<lat>&latitude-max=<lat+10>&longitude-min=<lon>&longitude-max=<lon+10>&format=CSV
+            (648 tiles of 10x10 deg, merged)
+  Access:   no registration
+
+----------------------------------------------------------------------
+3. permafrost_circumarctic_v2/  -  Permafrost and ground ice
+----------------------------------------------------------------------
+  Dataset:  Circum-Arctic Map of Permafrost and Ground-Ice Conditions, Version 2
+            (NSIDC GGD318.002; Brown et al.)
+  Coverage: Northern Hemisphere, about 25N to 90N
+  Landing:  https://nsidc.org/data/ggd318/versions/2
+  DOI:      https://doi.org/10.7265/skbg-kf16
+  User guide: https://nsidc.org/sites/default/files/ggd318-v002-userguide.pdf
+  Files:    ftp://sidads.colorado.edu/pub/DATASETS/fgdc/ggd318_map_circumarctic/
+            (shapefiles permaice/subsea/treeline, EASE-Grid nhipa/nlipa, 0.5 deg grid llipa)
+  Derived:  permafrost_grid_0.5deg.csv (made from llipa.byte plus the permaice.dbf legend)
+  Access:   anonymous FTP, no registration
+
+----------------------------------------------------------------------
+4. permafrost_esa_cci_2023/  -  Permafrost extent 2023 (ESA CCI)
+----------------------------------------------------------------------
+  Dataset:  ESA Permafrost CCI, L4 permafrost extent (PFR), MODIS LST + CryoGrid, AREA4, v05.0, year 2023
+  File:     ESACCI-PERMAFROST-L4-PFR-MODISLST_CRYOGRID-AREA4_PP-2023-fv05.0.nc (NetCDF, 12.4 MB)
+  Variables: PFR (permafrost area fraction, %), PFR_uncertainty (%), with lat/lon (WGS84, 0.01 deg, 25N-85N)
+  Project:  http://cci.esa.int/Permafrost
+  OPeNDAP:  https://data.cci.ceda.ac.uk/thredds/dodsC/esacci/permafrost/data/permafrost_extent/L4/area4/pp/v05.0/northern_hemisphere/2023/ESACCI-PERMAFROST-L4-PFR-MODISLST_CRYOGRID-AREA4_PP-2023-fv05.0.nc
+  Download: https://data.cci.ceda.ac.uk/thredds/fileServer/esacci/permafrost/data/permafrost_extent/L4/area4/pp/v05.0/northern_hemisphere/2023/ESACCI-PERMAFROST-L4-PFR-MODISLST_CRYOGRID-AREA4_PP-2023-fv05.0.nc
+  Access:   no registration
