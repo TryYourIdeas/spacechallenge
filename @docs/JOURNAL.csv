@@ -1,1 +1,2 @@
 Prompt Summary,Original Prompt,Timestamp,Tokens,Elapsed
+Nuxt + Leaflet layer explorer with point detail form,"create a nuxtjs app with leaflet for showing different layers of tables, the tables have coordinates, along with additional data, when a point is clicked a form must show the data of that point.",2026-11-14T11:54:57-03:00,unavailable,unavailable

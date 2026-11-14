@@ -13,3 +13,8 @@ backend/docker/compose.local.yaml
 .wrangler/
 .dev.vars
 .dev.vars.*
+
+.nuxt/
+.output/
+.data/
+frontend/dist
