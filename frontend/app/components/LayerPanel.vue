@@ -1,13 +1,49 @@
 <script setup lang="ts">
-import type { LayerMeta } from '~/types/layers'
+import type { DataFile, LayerMeta, ServerTask } from '~/types/layers'
 import type { LayerState } from '~/composables/useLayers'
 
 defineProps<{
   metas: LayerMeta[]
   states: Record<string, LayerState>
   visible: Set<string>
+  tasks: ServerTask[]
+  apiError: string
+  eventsOnline: boolean
+  files: DataFile[]
+  filesState: 'idle' | 'loading' | 'ready' | 'error'
+  filesError: string
+  importError: string
 }>()
-const emit = defineEmits<{ toggle: [id: string]; retry: [id: string] }>()
+const emit = defineEmits<{
+  toggle: [id: string]; retry: [id: string]; remove: [id: string]
+  'load-files': []; 'start-import': [name: string]
+}>()
+
+const picking = ref(false)
+
+function togglePicker() {
+  picking.value = !picking.value
+  if (picking.value) emit('load-files')
+}
+function choose(name: string) {
+  picking.value = false
+  emit('start-import', name)
+}
+
+const size = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
+const nf = new Intl.NumberFormat('en-US')
+
+function taskText(t: ServerTask): string {
+  switch (t.status) {
+    case 'queued': return 'Queued…'
+    case 'processing':
+      return t.progressTotal === null
+        ? `Scanning file… ${nf.format(t.progressDone)} rows read`
+        : `Importing ${nf.format(t.progressDone)} of ${nf.format(t.progressTotal)} points`
+    case 'done': return `Done: ${nf.format(t.importedRows ?? 0)} points${t.skippedRows ? `, ${nf.format(t.skippedRows)} skipped` : ''}`
+    default: return `Failed${t.error ? `: ${t.error}` : ''}`
+  }
+}
 </script>
 
 <template>
@@ -33,8 +69,48 @@ const emit = defineEmits<{ toggle: [id: string]; retry: [id: string] }>()
           <template v-else>Loading…</template>
         </span>
         <p v-if="m.description" class="muted desc">{{ m.description }}</p>
+        <button v-if="m.imported" type="button" class="remove" :aria-label="`Remove layer ${m.label}`" @click="emit('remove', m.id)">Remove</button>
       </li>
     </ul>
+    <div class="import">
+      <button type="button" :aria-expanded="picking" aria-controls="file-picker" @click="togglePicker">
+        Import CSV…
+      </button>
+      <p class="muted hint">Choose a file from the server's data directory.</p>
+      <div v-if="picking" id="file-picker" role="group" aria-label="CSV files in the data directory" class="picker">
+        <p v-if="filesState === 'loading'" role="status" class="muted">Loading files…</p>
+        <p v-else-if="filesState === 'error'" role="alert" class="error">{{ filesError }}</p>
+        <p v-else-if="!files.length" class="muted">No CSV files found in the data directory.</p>
+        <ul v-else>
+          <li v-for="f in files" :key="f.name">
+            <button type="button" class="file" @click="choose(f.name)">
+              <span class="fname">{{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+      <p v-if="importError" role="alert" class="error">{{ importError }}</p>
+      <p v-if="apiError" role="alert" class="error">{{ apiError }}</p>
+      <p v-if="!eventsOnline && tasks.some(t => t.status === 'queued' || t.status === 'processing')" role="status" class="muted hint">
+        Live progress is reconnecting…
+      </p>
+      <ul v-if="tasks.length" class="jobs" aria-label="Import tasks">
+        <li v-for="t in tasks" :key="t.id">
+          <span class="fname">{{ t.sourceName }}</span>
+          <progress
+            v-if="t.status === 'processing' && t.progressTotal !== null"
+            :value="t.progressDone" :max="t.progressTotal" :aria-label="`Import progress for ${t.sourceName}`"
+          />
+          <progress v-else-if="t.status === 'processing' || t.status === 'queued'" :aria-label="`Import progress for ${t.sourceName}`" />
+          <span class="status" :class="{ error: t.status === 'failed' }">{{ taskText(t) }}</span>
+        </li>
+      </ul>
+      <p class="sr-only" role="status" aria-live="polite">
+        <template v-for="t in tasks.slice(0, 3)" :key="t.id">
+          <template v-if="t.status === 'done' || t.status === 'failed'">{{ t.sourceName }}: {{ taskText(t) }}. </template>
+        </template>
+      </p>
+    </div>
   </fieldset>
 </template>
 
@@ -54,5 +130,16 @@ input { width: 18px; height: 18px; accent-color: var(--color-accent-arctic-cyan)
 .muted { color: var(--color-text-secondary); }
 .error { color: var(--color-danger); margin-right: 0.5rem; }
 button { background: var(--color-surface-raised); color: var(--color-text-primary); border: 1px solid var(--color-accent-royal-purple); border-radius: 6px; padding: 0.25rem 0.75rem; min-height: 32px; cursor: pointer; font: inherit; }
+.import { margin-top: 1rem; display: grid; gap: 0.4rem; justify-items: start; }
+.hint { margin: 0; font-size: 0.8125rem; }
+.remove { margin: 0.25rem 0 0 2.1rem; }
+.jobs { margin-top: 0.5rem; gap: 0.6rem; width: 100%; }
+.picker { width: 100%; max-height: 14rem; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.5rem; background: var(--color-bg-deep-space); }
+.picker ul { gap: 0.25rem; }
+.file { width: 100%; display: flex; justify-content: space-between; gap: 0.75rem; text-align: left; }
+progress { width: 100%; height: 8px; accent-color: var(--color-accent-arctic-cyan); }
+.jobs .status { margin-left: 0; }
+.fname { overflow-wrap: anywhere; font-size: 0.875rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 button:hover { border-color: var(--color-accent-arctic-cyan); }
 </style>

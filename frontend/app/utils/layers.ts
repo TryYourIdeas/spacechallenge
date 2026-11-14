@@ -64,7 +64,9 @@ export function parseLayer(meta: LayerMeta, raw: unknown): Layer {
     ids.add(id)
     rows.push({ ...(r as Record<string, string | number | null>), id } as LayerRow)
   })
-  return { ...meta, fields, rows, skipped }
+  // Imported layers report rows the server dropped before sending.
+  const serverSkipped = typeof raw.skipped === 'number' ? raw.skipped : 0
+  return { ...meta, fields, rows, skipped: skipped + serverSkipped }
 }
 
 export function formatValue(field: LayerField, value: string | number | null | undefined): string {

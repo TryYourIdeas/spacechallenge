@@ -41,3 +41,10 @@ describe('formatValue', () => {
     expect(formatValue({ key: 'm', label: 'M', type: 'number', unit: 'kg' }, 1200.5)).toBe('1,200.5 kg'))
   it('renders empty for null', () => expect(formatValue({ key: 'm', label: 'M', type: 'string' }, null)).toBe(''))
 })
+
+describe('parseLayer with server-side skipped rows', () => {
+  it('adds the skipped count reported by the API', () => {
+    const layer = parseLayer(meta, { fields: [], rows: [{ id: '0', latitude: 1, longitude: 2 }], skipped: 4 })
+    expect(layer.skipped).toBe(4)
+  })
+})

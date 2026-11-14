@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Layer, SelectedPoint } from '~/types/layers'
 
-const { indexState, indexError, metas, states, visible, toggle, reload, retryLayer } = useLayers()
+const { indexState, indexError, metas, states, visible, toggle, reload, retryLayer, tasks, apiError, eventsOnline, files, filesState, filesError, importError, loadFiles, startImport, removeLayer } = useLayers()
 const selected = shallowRef<SelectedPoint | null>(null)
 const form = ref<{ focus: () => void }>()
 
@@ -43,7 +43,10 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
       <LayerPanel
         v-else
         :metas="metas" :states="states" :visible="visible"
-        @toggle="toggle" @retry="retryLayer"
+        :tasks="tasks" :api-error="apiError" :events-online="eventsOnline"
+        :files="files" :files-state="filesState" :files-error="filesError" :import-error="importError"
+        @toggle="toggle" @retry="retryLayer" @remove="removeLayer"
+        @load-files="loadFiles" @start-import="startImport"
       />
 
       <PointForm ref="form" :point="selected" @close="selected = null" />

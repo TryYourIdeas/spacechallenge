@@ -1,4 +1,4 @@
-import type { Layer, LayerMeta } from '~/types/layers'
+import type { DataFile, Layer, LayerMeta, ServerTask } from '~/types/layers'
 import { parseLayer, parseLayerIndex } from '~/utils/layers'
 
 export type LayerState =
@@ -52,10 +52,12 @@ export function useLayers() {
     try {
       const list = parseLayerIndex(await fetchJson('layers.json', signal))
       if (signal.aborted) return
-      metas.value = list
-      visible.value = new Set(list.map(m => m.id))
+      const kept = metas.value.filter(m => m.imported)
+      metas.value = [...list, ...kept]
+      visible.value = new Set([...list, ...kept].map(m => m.id).filter(id => !kept.some(k => k.id === id) || visible.value.has(id)))
       indexState.value = 'ready'
-      await Promise.all(list.map(m => loadLayer(m, signal)))
+      if (!events) connectEvents()
+      await Promise.all([...list.map(m => loadLayer(m, signal)), syncServerLayers(signal)])
     } catch (e) {
       if (signal.aborted) return
       indexError.value = e instanceof Error ? e.message : 'Unknown error'
@@ -65,7 +67,13 @@ export function useLayers() {
 
   function retryLayer(id: string) {
     const meta = metas.value.find(m => m.id === id)
-    if (meta && controller) void loadLayer(meta, controller.signal)
+    if (!meta || !controller) return
+    if (meta.imported) {
+      setState(id, { status: 'loading' })
+      loadServerLayer(meta, controller.signal).catch((e) => {
+        setState(id, { status: 'error', message: e instanceof Error ? e.message : 'Unknown error' })
+      })
+    } else void loadLayer(meta, controller.signal)
   }
 
   function toggle(id: string) {
@@ -74,8 +82,129 @@ export function useLayers() {
     visible.value = next
   }
 
-  onMounted(load)
-  onBeforeUnmount(() => controller?.abort())
+  // ---- Layers stored on the server (CSV files imported from the data directory) ----
+  const tasks = ref<ServerTask[]>([])
+  const apiError = ref('')
+  const eventsOnline = ref(false)
+  const files = ref<DataFile[]>([])
+  const filesState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const filesError = ref('')
+  const importError = ref('')
+  const apiBase = String(useRuntimeConfig().public.apiBase).replace(/\/$/, '')
+  let events: EventSource | undefined
+  const loadingServer = new Set<string>()
 
-  return { indexState, indexError, metas, states, visible, toggle, reload: load, retryLayer }
+  async function api(path: string, init: RequestInit = {}): Promise<Response> {
+    const res = await fetch(apiBase + path, init)
+    if (!res.ok) {
+      let msg = `Request failed (${res.status})`
+      try { const b = await res.json(); if (typeof b?.error === 'string') msg = b.error } catch { /* keep default */ }
+      throw new Error(msg)
+    }
+    return res
+  }
+
+  async function loadServerLayer(meta: LayerMeta, signal: AbortSignal) {
+    const res = await api(`/api/layers/${meta.id}`, { signal })
+    const layer = parseLayer(meta, await res.json())
+    if (signal.aborted) return
+    setState(meta.id, { status: 'ready', layer })
+  }
+
+  function showServerLayer(meta: LayerMeta) {
+    if (!metas.value.some(m => m.id === meta.id)) metas.value = [...metas.value, meta]
+    visible.value = new Set([...visible.value, meta.id])
+  }
+
+  /** Loads every server layer we don't have yet (page start, SSE reconnect, finished import). */
+  async function syncServerLayers(signal: AbortSignal) {
+    try {
+      const res = await api('/api/layers', { signal })
+      const list = parseLayerIndex(await res.json()).map(m => ({ ...m, imported: true }))
+      if (signal.aborted) return
+      apiError.value = ''
+      await Promise.all(list.filter(m => !states.value[m.id] && !loadingServer.has(m.id)).map(async (m) => {
+        loadingServer.add(m.id)
+        showServerLayer(m)
+        setState(m.id, { status: 'loading' })
+        try { await loadServerLayer(m, signal) } catch (e) {
+          if (!signal.aborted) setState(m.id, { status: 'error', message: e instanceof Error ? e.message : 'Unknown error' })
+        } finally { loadingServer.delete(m.id) }
+      }))
+    } catch {
+      if (!signal.aborted) apiError.value = 'Saved CSV layers are unavailable: the server could not be reached.'
+    }
+  }
+
+  function applyTask(t: ServerTask) {
+    const prev = tasks.value.find(x => x.id === t.id)
+    // Events can arrive out of order relative to the snapshot; keep the newest.
+    if (prev && prev.updatedAt > t.updatedAt) return
+    tasks.value = [t, ...tasks.value.filter(x => x.id !== t.id)]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8)
+    if (t.status === 'done' && prev?.status !== 'done' && controller) void syncServerLayers(controller.signal)
+  }
+
+  function connectEvents() {
+    if (typeof EventSource === 'undefined') return
+    events?.close()
+    events = new EventSource(`${apiBase}/api/events`)
+    events.addEventListener('open', () => { eventsOnline.value = true })
+    events.addEventListener('error', () => { eventsOnline.value = false }) // the browser retries by itself
+    events.addEventListener('snapshot', (e) => {
+      try {
+        const { tasks: list } = JSON.parse((e as MessageEvent).data) as { tasks: ServerTask[] }
+        list.forEach(applyTask)
+        if (controller) void syncServerLayers(controller.signal)
+      } catch { /* ignore malformed frame */ }
+    })
+    events.addEventListener('task', (e) => {
+      try { applyTask(JSON.parse((e as MessageEvent).data) as ServerTask) } catch { /* ignore malformed frame */ }
+    })
+  }
+
+  async function loadFiles() {
+    filesState.value = 'loading'
+    filesError.value = ''
+    try {
+      files.value = ((await (await api('/api/files')).json()) as { files: DataFile[] }).files
+      filesState.value = 'ready'
+    } catch (e) {
+      filesError.value = e instanceof Error ? e.message : 'Could not list files'
+      filesState.value = 'error'
+    }
+  }
+
+  /** Asks the server to import a file from its data directory; progress arrives over SSE. */
+  async function startImport(name: string) {
+    importError.value = ''
+    try {
+      const res = await api('/api/imports', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: name }),
+      })
+      applyTask(await res.json() as ServerTask)
+    } catch (e) {
+      importError.value = `${name}: ${e instanceof Error ? e.message : 'could not start the import'}`
+    }
+  }
+
+  async function removeLayer(id: string) {
+    try {
+      await api(`/api/layers/${id}`, { method: 'DELETE' })
+    } catch (e) {
+      apiError.value = `Could not remove the layer: ${e instanceof Error ? e.message : 'unknown error'}`
+      return
+    }
+    metas.value = metas.value.filter(m => m.id !== id)
+    const { [id]: _gone, ...rest } = states.value
+    states.value = rest
+    const next = new Set(visible.value)
+    next.delete(id)
+    visible.value = next
+  }
+
+  onMounted(load)
+  onBeforeUnmount(() => { controller?.abort(); events?.close() })
+
+  return { indexState, indexError, metas, states, visible, toggle, reload: load, retryLayer, tasks, apiError, eventsOnline, files, filesState, filesError, importError, loadFiles, startImport, removeLayer }
 }

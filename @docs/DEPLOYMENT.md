@@ -150,3 +150,12 @@ Use the actual project name stored in `shared/compose-project`.
 - [Docker named volumes](https://docs.docker.com/engine/storage/volumes/)
 - [Compose configuration merging](https://docs.docker.com/reference/compose-file/merge/)
 - [Caddy HTTPS reverse proxy](https://caddyserver.com/docs/quick-starts/reverse-proxy)
+
+## Import data directory
+
+The API and worker read importable CSV files from `DATA_DIR`, mounted read-only
+at `/data/source`. Deployments upload only `backend/`, so the repository's
+`data/` folder is not on the VM: create a persistent directory outside the
+release folders, copy the CSV files there yourself, and set its absolute path
+as `DATA_DIR` in `shared/backend.env`. Without it Compose falls back to a
+nonexistent `../../data` path and the file list will be empty.

@@ -1,10 +1,10 @@
 # Backend
 
-This directory is a Docker Compose application made of three independent images:
+This directory is a Docker Compose application made of PostgreSQL, Redis and one application image run as two services:
 
-- `api` is a language-agnostic HTTP API placeholder. Replace its image or change
-  it to a `build: ../services/api` service after choosing the API language and
-  framework.
+- `api` and `worker` are built from `services/api` (Node + Fastify): the HTTP API
+  (including Server-Sent Events) and the asynchronous CSV import worker, which
+  reads files from `DATA_DIR` (mounted read-only). See `services/api/README.md`.
 - `postgres` is PostgreSQL with the `pgvector` extension enabled.
 - `queue` is Redis, a small queue/broker suitable for background work.
 
@@ -14,11 +14,7 @@ Use the backend-owned Compose wrapper from the project root:
 ./backend/docker/compose.sh up --wait
 ```
 
-The default API image is `nginx`, only so a fresh stack has a reachable
-HTTP service. It is not application code. Set `API_IMAGE` and
-`API_CONTAINER_PORT` in `backend/docker/.env`. Once the project chooses an API
-language, add its Dockerfile in `services/api/` and commit the corresponding
-`build: ../services/api` change in `docker/compose.yaml` with the API source.
+`API_PORT`/`API_CONTAINER_PORT` and `CORS_ORIGINS` are set in `backend/docker/.env`.
 `docker/compose.local.yaml` is strictly for developer-machine overrides; the
 wrapper loads it automatically and keeps it out of version control.
 
