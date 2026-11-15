@@ -21,7 +21,7 @@ import {
 
 const sampleLayer: Layer = {
   id: 'basalt',
-  label: 'Basaltos',
+  label: 'Basalts',
   description: '',
   shape: 'circle',
   color: '#00E5FF',
@@ -31,11 +31,11 @@ const sampleLayer: Layer = {
     { key: 'c0', label: 'rock_name', type: 'string' },
     { key: 'c1', label: 'SiO2', type: 'number' },
     { key: 'c2', label: 'TiO2', type: 'number' },
-    { key: 'c3', label: 'sim_lua_quimica_x_temp', type: 'number' },
-    { key: 'c4', label: 'sim_temp_polo_sul', type: 'number' },
-    { key: 'c5', label: 'grupo_lunar_mais_proximo', type: 'string' },
-    { key: 'c6', label: 'missao_amostra_mais_proxima', type: 'string' },
-    { key: 'c7', label: 'brasil', type: 'number' },
+    { key: 'c3', label: 'lunar_chem_temp_sim', type: 'number' },
+    { key: 'c4', label: 'south_pole_temp_sim', type: 'number' },
+    { key: 'c5', label: 'closest_lunar_group', type: 'string' },
+    { key: 'c6', label: 'closest_apollo_mission', type: 'string' },
+    { key: 'c7', label: 'brazil', type: 'number' },
     { key: 'c8', label: 'tectonic_setting', type: 'string' },
   ],
   rows: [
@@ -49,7 +49,7 @@ const sampleLayer: Layer = {
       c2: 1.95,
       c3: 79.1,
       c4: 86.9,
-      c5: 'baixo-Ti',
+      c5: 'low-Ti',
       c6: 'Apollo 15',
       c7: 1,
       c8: 'CONTINENTAL FLOOD BASALT',
@@ -64,7 +64,7 @@ const sampleLayer: Layer = {
       c2: 3.8,
       c3: 66.5,
       c4: 74.7,
-      c5: 'alto-Ti',
+      c5: 'high-Ti',
       c6: 'Apollo 12',
       c7: 0,
       c8: 'OCEAN ISLAND',
@@ -136,7 +136,7 @@ describe('matchesLayerFilter & filterLayerRows', () => {
       ...defaultLayerFilter(),
       minerals: ['Olivine'],
       similarityPreset: 'high_chem_temp',
-      lunarGroup: 'baixo-Ti',
+      lunarGroup: 'low-Ti',
       ranges: { c2: { min: 1.0, max: 2.5 } },
     }
     expect(countLayerFilters(f)).toBe(4)
@@ -157,7 +157,7 @@ describe('matchesLayerFilter & filterLayerRows', () => {
       ...defaultLayerFilter(),
       mode: 'or' as const,
       minerals: ['Alkali Basalt'],
-      lunarGroup: 'baixo-Ti',
+      lunarGroup: 'low-Ti',
     }
     const kept = filterLayerRows(sampleLayer, defaultGlobalFilter(), fOr)
     expect(kept.map(r => r.id)).toEqual(['rr1', 'uk1'])

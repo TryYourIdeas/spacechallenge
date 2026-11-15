@@ -34,7 +34,7 @@ export const CONTINENTS: ContinentDef[] = [
 ]
 
 export const COUNTRIES: CountryDef[] = [
-  { id: 'BR', label: 'Brazil', continent: 'south-america', center: [-14.235, -51.925], boxes: [{ west: -74.0, south: -33.8, east: -34.0, north: 5.4 }], keywords: ['brazil', 'brasil', 'parana', 'serra geral'] },
+  { id: 'BR', label: 'Brazil', continent: 'south-america', center: [-14.235, -51.925], boxes: [{ west: -74.0, south: -33.8, east: -34.0, north: 5.4 }], keywords: ['brazil', 'parana', 'serra geral'] },
   { id: 'AR', label: 'Argentina', continent: 'south-america', center: [-38.416, -63.616], boxes: [{ west: -73.6, south: -55.1, east: -53.6, north: -21.8 }], keywords: ['argentina', 'campo del cielo'] },
   { id: 'GF', label: 'French Guiana (France)', continent: 'south-america', center: [4.0, -53.0], boxes: [{ west: -54.6, south: 2.1, east: -51.6, north: 5.8 }], keywords: ['french guiana', 'kourou', 'guiana'] },
   { id: 'CL', label: 'Chile', continent: 'south-america', center: [-35.675, -71.543], boxes: [{ west: -75.6, south: -55.9, east: -66.4, north: -17.5 }], keywords: ['chile', 'atacama'] },
@@ -84,11 +84,11 @@ export const COMMON_BASALT_MINERALS = [
   'Cumulate',
 ]
 
-export const LUNAR_GROUPS = ['baixo-Ti', 'alto-Ti', 'alto-Al', 'KREEP']
+export const LUNAR_GROUPS = ['low-Ti', 'high-Ti', 'high-Al', 'KREEP']
 export const LUNAR_GROUP_LABELS: Record<string, string> = {
-  'baixo-Ti': 'Low-Ti (baixo-Ti)',
-  'alto-Ti': 'High-Ti (alto-Ti)',
-  'alto-Al': 'High-Al (alto-Al)',
+  'low-Ti': 'Low-Ti',
+  'high-Ti': 'High-Ti',
+  'high-Al': 'High-Al',
   KREEP: 'KREEP',
 }
 export const APOLLO_MISSIONS = ['Apollo 11', 'Apollo 12', 'Apollo 14', 'Apollo 15', 'Apollo 16', 'Apollo 17']
@@ -214,13 +214,13 @@ const byLabel = (fields: LayerField[], names: string[]): LayerField | undefined 
 export function detectLayerCapabilities(layer: Layer): LayerFilterCapabilities {
   const { fields, rows } = layer
   const mineralField = byLabel(fields, ['rock_name', 'classification', 'category', 'lithology', 'class_name'])
-  const similarityField = byLabel(fields, ['sim_lua_quimica_x_temp', 'sim_lua', 'moon relevance (1-5)', 'sim_temp_lua'])
-  const chemSimilarityField = byLabel(fields, ['sim_lua'])
-  const southPoleField = byLabel(fields, ['sim_temp_polo_sul'])
-  const kreepField = byLabel(fields, ['mais_parecido_com_kreep', 'sim_lua_kreep'])
-  const brazilField = byLabel(fields, ['brasil'])
-  const lunarGroupField = byLabel(fields, ['grupo_lunar_mais_proximo'])
-  const apolloMissionField = byLabel(fields, ['missao_amostra_mais_proxima'])
+  const similarityField = byLabel(fields, ['lunar_chem_temp_sim', 'lunar_similarity', 'moon relevance (1-5)', 'lunar_temp_sim'])
+  const chemSimilarityField = byLabel(fields, ['lunar_similarity', 'chem_similarity'])
+  const southPoleField = byLabel(fields, ['south_pole_temp_sim', 'lunar_south_pole_sim'])
+  const kreepField = byLabel(fields, ['closest_kreep', 'lunar_kreep_sim'])
+  const brazilField = byLabel(fields, ['brazil'])
+  const lunarGroupField = byLabel(fields, ['closest_lunar_group', 'lunar_group'])
+  const apolloMissionField = byLabel(fields, ['closest_apollo_mission', 'apollo_mission'])
   const countryField = byLabel(fields, ['country', 'country/region', 'location'])
 
   const oxideFields = fields.filter(f => OXIDE_DEFAULTS[f.label.trim().toLowerCase()] !== undefined)
@@ -268,7 +268,7 @@ export function fieldRangeBounds(layer: Layer, field: LayerField): { min: number
   const ox = OXIDE_DEFAULTS[field.label.trim().toLowerCase()]
   if (ox) return ox
   const lbl = field.label.trim().toLowerCase()
-  if (lbl.startsWith('sim_') || lbl.includes('pct_') || lbl.includes('percentil')) {
+  if (lbl.startsWith('sim_') || lbl.includes('_sim') || lbl.includes('pct_') || lbl.includes('percentile')) {
     return { min: 0, max: 100, step: 1 }
   }
   const cat = catalogOf(layer, field.key)
@@ -307,8 +307,8 @@ export function distinctCategoryOptions(layer: Layer, field: LayerField): string
     return [...s].slice(0, 50).sort()
   }
   const lbl = field.label.trim().toLowerCase()
-  if (lbl === 'grupo_lunar_mais_proximo') return LUNAR_GROUPS
-  if (lbl === 'missao_amostra_mais_proxima') return APOLLO_MISSIONS
+  if (lbl === 'closest_lunar_group' || lbl === 'lunar_group') return LUNAR_GROUPS
+  if (lbl === 'closest_apollo_mission' || lbl === 'apollo_mission') return APOLLO_MISSIONS
   if (lbl === 'tectonic_setting') {
     return [
       'CONTINENTAL FLOOD BASALT',
@@ -331,7 +331,7 @@ export function matchesGlobalFilter(row: LayerRow, fields: LayerField[], g: Glob
   if (g.country) {
     const country = COUNTRIES.find(c => c.id === g.country)
     if (country) {
-      const brazilField = byLabel(fields, ['brasil'])
+      const brazilField = byLabel(fields, ['brazil'])
       if (country.id === 'BR' && brazilField) {
         const bVal = row[brazilField.key]
         if (bVal !== 1 && bVal !== '1') return false
