@@ -60,9 +60,13 @@ export interface ParsedFilterRule {
   hideMissing?: boolean
 }
 
+export interface Circle { lat: number; lon: number; km: number }
+export const MAX_CIRCLES = 200
+
 export interface ParsedServerFilter {
   boxes?: Bbox[]
-  distance?: { lat: number; lon: number; km: number }
+  distance?: Circle
+  distances?: Circle[]
   brazilField?: string
   mode?: 'and' | 'or'
   rules?: ParsedFilterRule[]
@@ -71,13 +75,24 @@ export interface ParsedServerFilter {
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
+function parseCircle(v: unknown): Circle | null {
+  if (!isObj(v)) return null
+  const { lat, lon, km } = v
+  if (
+    typeof lat !== 'number' || typeof lon !== 'number' || typeof km !== 'number' ||
+    !Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(km) ||
+    lat < -90 || lat > 90 || lon < -180 || lon > 180 || km <= 0 || km > 25000
+  ) return null
+  return { lat, lon, km }
+}
+
 /**
  * Parses and validates an optional JSON `?filter=` query string.
  * Returns `undefined` when absent/empty, or `null` when malformed.
  */
 export function parseFilterParam(raw: unknown): ParsedServerFilter | undefined | null {
   if (raw === undefined || raw === null || raw === '') return undefined
-  if (typeof raw !== 'string' || raw.length > 8192) return null
+  if (typeof raw !== 'string' || raw.length > 32768) return null
   let obj: unknown
   try {
     obj = JSON.parse(raw)
@@ -113,14 +128,21 @@ export function parseFilterParam(raw: unknown): ParsedServerFilter | undefined |
   }
 
   if (obj.distance !== undefined) {
-    if (!isObj(obj.distance)) return null
-    const { lat, lon, km } = obj.distance
-    if (
-      typeof lat !== 'number' || typeof lon !== 'number' || typeof km !== 'number' ||
-      !Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(km) ||
-      lat < -90 || lat > 90 || lon < -180 || lon > 180 || km <= 0 || km > 25000
-    ) return null
-    out.distance = { lat, lon, km }
+    const d = parseCircle(obj.distance)
+    if (!d) return null
+    out.distance = d
+  }
+
+  // Several radius circles: a point passes when it lies inside ANY of them.
+  if (obj.distances !== undefined) {
+    if (!Array.isArray(obj.distances) || obj.distances.length === 0 || obj.distances.length > MAX_CIRCLES) return null
+    const list: Circle[] = []
+    for (const c of obj.distances) {
+      const d = parseCircle(c)
+      if (!d) return null
+      list.push(d)
+    }
+    out.distances = list
   }
 
   if (obj.mode !== undefined) {

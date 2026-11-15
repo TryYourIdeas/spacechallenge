@@ -1,4 +1,4 @@
-import type { GlobalFilter, LatLngBoundsTuple, Layer, LayerField, LayerFilter, LayerRow, NumericRangeFilter } from '../types/layers'
+import type { GlobalFilter, LatLngBoundsTuple, Layer, LayerField, LayerFilter, LayerRow, NumericRangeFilter, RadiusCircle } from '../types/layers'
 
 export interface GeoEnvelope {
   west: number
@@ -131,8 +131,26 @@ export function defaultGlobalFilter(): GlobalFilter {
     originLat: null,
     originLon: null,
     originLabel: '',
+    circles: [],
+    syncRegionCircle: true,
     autoFit: true,
   }
+}
+
+export function activeCircles(g: GlobalFilter): RadiusCircle[] {
+  if (g.circles && g.circles.length > 0) {
+    return g.circles.filter(c => c.km > 0 && Number.isFinite(c.lat) && Number.isFinite(c.lon))
+  }
+  if (g.distanceKm !== null && g.distanceKm > 0 && g.originLat !== null && g.originLon !== null) {
+    return [{
+      id: 'primary',
+      lat: g.originLat,
+      lon: g.originLon,
+      km: g.distanceKm,
+      label: g.originLabel || `${g.originLat.toFixed(2)}°, ${g.originLon.toFixed(2)}°`,
+    }]
+  }
+  return []
 }
 
 export function defaultLayerFilter(): LayerFilter {
@@ -168,7 +186,7 @@ export function countGlobalFilters(g: GlobalFilter): number {
   let n = 0
   if (g.continent) n++
   if (g.country) n++
-  if (g.distanceKm !== null && g.distanceKm > 0 && g.originLat !== null && g.originLon !== null) n++
+  n += activeCircles(g).length
   return n
 }
 
@@ -349,8 +367,10 @@ export function matchesGlobalFilter(row: LayerRow, fields: LayerField[], g: Glob
       }
     }
   }
-  if (g.distanceKm !== null && g.distanceKm > 0 && g.originLat !== null && g.originLon !== null) {
-    if (haversineKm(row.latitude, row.longitude, g.originLat, g.originLon) > g.distanceKm) return false
+  const circles = activeCircles(g)
+  if (circles.length > 0) {
+    const insideAny = circles.some(c => haversineKm(row.latitude, row.longitude, c.lat, c.lon) <= c.km)
+    if (!insideAny) return false
   }
   return true
 }
@@ -481,6 +501,7 @@ export interface ServerFilterRule {
 export interface ServerFilterPayload {
   boxes?: GeoEnvelope[]
   distance?: { lat: number; lon: number; km: number }
+  distances?: { lat: number; lon: number; km: number }[]
   brazilField?: string
   mode?: 'and' | 'or'
   rules?: ServerFilterRule[]
@@ -502,8 +523,11 @@ export function buildServerFilterPayload(layer: Layer, g: GlobalFilter, f?: Laye
     if (cont) payload.boxes = cont.boxes
   }
 
-  if (g.distanceKm !== null && g.distanceKm > 0 && g.originLat !== null && g.originLon !== null) {
-    payload.distance = { lat: g.originLat, lon: g.originLon, km: g.distanceKm }
+  const circles = activeCircles(g)
+  if (circles.length === 1) {
+    payload.distance = { lat: circles[0]!.lat, lon: circles[0]!.lon, km: circles[0]!.km }
+  } else if (circles.length > 1) {
+    payload.distances = circles.map(c => ({ lat: c.lat, lon: c.lon, km: c.km }))
   }
 
   if (f && countLayerFilters(f) > 0) {

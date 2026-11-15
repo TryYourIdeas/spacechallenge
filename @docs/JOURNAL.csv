@@ -40,3 +40,15 @@ b - sim, teremos os filtros das camadas pelo tipo de mineral
     allowedHosts: ['railson-silva.tail4526a3.ts.net'],
   },
 })",2026-11-15T10:26:02-03:00,unavailable,39
+"Commit filter work and push to new dev branch (excluding Windows-only lockfile change)","pode subir essas alterações numa branch de dev",2026-11-15T10:30:29-03:00,unavailable,37
+"Implement multiple radius circles (union/OR) across UI, client filter engine, and PostGIS backend","continue",2026-11-15T11:28:47-03:00,unavailable,194
+"Design selected-circle & filter-synced multi-circle UX in Figma and request approval before coding","Não ficou no padrão esperado, siga o seguinte:
+
+ Obejetivo
+    - Ter o circulo selecionado de acordo com o filtro
+ Validação
+   - Valide antes em foto, pode desenhar no figma e peça minha autorização para levar a diante",2026-11-15T11:40:27-03:00,unavailable,114
+"Implement Figma-approved selected-circle cards, map click-to-select badges, and Sync with Region Filter mode","Sim, testaremos em seguida",2026-11-15T11:45:15-03:00,unavailable,121
+"Confirm understanding of layer-click radius circles across all points of that layer","Vamos fazer outra alteração, quando clica em alguma leayer no mapa, deve aparecer o criculus radium em volta de todas as layers da mesma no mapa, me explique se entendeu",2026-11-15T14:26:57-03:00,unavailable,15
+"Draw and apply radius circles around all points of a layer when clicking any point of that layer on the map","continue",2026-11-15T14:36:47-03:00,unavailable,117
+"Commit multi-circle, layer-click radius, and data/sources files to dev branch and push to GitHub","Pode subir tudo no github, inclusive o arquivos que coloquei em sources que não as fontes dos dados",2026-11-15T15:14:14-03:00,unavailable,23
