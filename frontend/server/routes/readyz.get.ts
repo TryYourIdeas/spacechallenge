@@ -1,10 +1,9 @@
 import { log } from '../utils/log'
-import { getPool, getRedis } from '../utils/services'
+import { getPool } from '../utils/services'
 
 export default defineEventHandler(async (event) => {
   try {
     await getPool().query('SELECT 1')
-    await getRedis().ping()
     return { status: 'ready' }
   } catch (e) {
     log('error', 'not ready', { err: (e as Error).message })

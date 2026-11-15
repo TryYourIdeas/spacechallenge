@@ -2,9 +2,8 @@ import { loadConfig } from '../utils/config'
 import { migrate, waitForDb } from '../utils/db'
 import { log } from '../utils/log'
 import { closeServices, getPool } from '../utils/services'
-import { startWorker } from '../utils/worker'
 
-// Runs at server start: apply migrations, then (for the worker role) start consuming imports.
+// Runs at server start: apply migrations (Docker/VM only).
 export default defineNitroPlugin(async (nitro) => {
   if (import.meta.prerender) return
   let cfg
@@ -13,13 +12,14 @@ export default defineNitroPlugin(async (nitro) => {
     log('warn', 'API disabled', { reason: (e as Error).message })
     return
   }
+  // Serverless (Vercel) has no migration files and no shutdown hook: it only reads. Migrations
+  // are applied by the Docker `app` service or by `npm run import`.
+  if (process.env.VERCEL) return
   const pool = getPool()
   await waitForDb(pool)
   await migrate(pool, cfg.migrationsDir)
-  const stopWorker = cfg.role === 'web' ? undefined : startWorker()
   nitro.hooks.hook('close', async () => {
     log('info', 'shutting down')
-    await stopWorker?.()
     await closeServices()
   })
 })

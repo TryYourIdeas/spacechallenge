@@ -18,3 +18,9 @@ backend/docker/compose.local.yaml
 .output/
 .data/
 frontend/dist
+
+# Local datasets (kept on disk, not tracked)
+/data/
+/data-to-process/
+.vercel/
+/data.zip

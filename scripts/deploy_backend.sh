@@ -59,7 +59,7 @@ mkdir -p -- "$1/shared" "$1/releases/$3"
 chmod 700 "$1/shared"
 PREPARE
 printf -v transport '%q ' ssh "${ssh_options[@]}"
-# backend/ holds the Docker definitions; frontend/ is the Nuxt app (SPA, API, worker) they build.
+# backend/ holds the Docker definitions; frontend/ is the Nuxt app (SPA and API) they build.
 for part in backend frontend; do
   rsync -az -e "$transport" \
     --include=.env.example --exclude='.env*' --exclude='.dev.vars*' \

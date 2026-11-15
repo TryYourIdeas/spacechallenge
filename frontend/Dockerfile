@@ -1,4 +1,4 @@
-# Builds this Nuxt project (SPA + server API + import worker) for the app and worker services.
+# Builds this Nuxt project (SPA + read-only server API) for the app service.
 # Context must be this directory; backend/docker/compose.yaml sets it.
 FROM node:22-alpine AS build
 WORKDIR /app

@@ -6,5 +6,5 @@ export default defineEventHandler((event) => {
   if (!event.path.startsWith('/api/')) return
   let origin: string[]
   try { origin = config().corsOrigins } catch { return }
-  if (handleCors(event, { origin, methods: ['GET', 'POST', 'DELETE'], preflight: { statusCode: 204 } })) return true
+  if (handleCors(event, { origin, methods: ['GET'], preflight: { statusCode: 204 } })) return true
 })

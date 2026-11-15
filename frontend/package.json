@@ -8,14 +8,16 @@
     "build:server": "nuxt build",
     "preview": "nuxt preview",
     "typecheck": "nuxt typecheck",
-    "test": "vitest run"
+    "test": "vitest run",
+    "import": "vite-node scripts/import-csv.ts --",
+    "layers": "vite-node scripts/list-layers.ts",
+    "delete-layer": "vite-node scripts/delete-layer.ts --",
+    "geojson-to-csv": "vite-node scripts/geojson-to-csv.ts --"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
-    "bullmq": "^6.7.6",
     "csv-parse": "^7.0.3",
-    "ioredis": "^5.11.1",
     "leaflet": "^1.9.4",
     "nuxt": "^4.4.8",
     "pg": "^8.23.1",

@@ -253,7 +253,7 @@ async function listCluster(layer: Layer, item: ClusterItem, bounds: L.LatLngBoun
   if (!map) return
   const box = document.createElement('div')
   box.className = 'cl-list'
-  const popup = L.popup({ maxWidth: 280 }).setLatLng([item.latitude, item.longitude]).setContent(box).openOn(map)
+  const popup = L.popup({ className: 'cl-popup', minWidth: 260, maxWidth: 320, autoPanPadding: [24, 24] }).setLatLng([item.latitude, item.longitude]).setContent(box).openOn(map)
   const note = (text: string, role?: string) => {
     box.replaceChildren(Object.assign(document.createElement('p'), { textContent: text }))
     if (role) box.firstElementChild!.setAttribute('role', role)
@@ -264,14 +264,24 @@ async function listCluster(layer: Layer, item: ClusterItem, bounds: L.LatLngBoun
     const { points, truncated } = await props.fetchPoints(
       layer.id, viewportBbox({ west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() }),
       new AbortController().signal, filterPayload)
-    const heading = Object.assign(document.createElement('p'), {
-      textContent: `${item.count.toLocaleString('en-US')} points share this location`,
-    })
+    const heading = document.createElement('h3')
+    heading.className = 'cl-title'
+    heading.append(
+      Object.assign(document.createElement('span'), { textContent: `${item.count.toLocaleString('en-US')} points share this location` }),
+      Object.assign(document.createElement('small'), { textContent: layer.label }),
+    )
     const list = document.createElement('ul')
+    list.setAttribute('aria-label', `${item.count.toLocaleString('en-US')} points at this location`)
+    list.style.setProperty('--pt', layer.color ?? 'var(--color-accent-royal-purple)')
     for (const p of points) {
       const b = document.createElement('button')
       b.type = 'button'
-      b.textContent = p.name ?? p.id
+      const label = p.name ?? p.id
+      b.title = label
+      b.append(
+        Object.assign(document.createElement('span'), { className: 'cl-name', textContent: label }),
+        ...(p.name ? [Object.assign(document.createElement('span'), { className: 'cl-id', textContent: p.id })] : []),
+      )
       b.addEventListener('click', (e) => {
         const row = { id: p.id, latitude: p.latitude, longitude: p.longitude, ...(p.name ? { name: p.name } : {}) } as LayerRow
         emit('select', { layer, fields: layer.fields, row }, e.detail === 0)
@@ -500,11 +510,22 @@ watch(
 .cl-wrap:focus-visible { outline: none; }
 .cl { display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--pt) 30%, var(--color-bg-deep-space)); border: 3px solid var(--pt); color: var(--color-text-primary); font: 600 0.8125rem var(--font-sans); box-shadow: 0 0 0 2px rgb(5 7 13 / 70%); }
 .cl-wrap:focus-visible .cl { box-shadow: var(--focus-ring); }
-.cl-list { font-family: var(--font-sans); color: #111; }
-.cl-list p { margin: 0 0 0.4rem; }
-.cl-list ul { margin: 0; padding: 0; list-style: none; max-height: 12rem; overflow-y: auto; }
-.cl-list button { width: 100%; text-align: left; margin: 0 0 0.25rem; padding: 0.4rem 0.6rem; min-height: 36px; border: 1px solid #7851a9; border-radius: 6px; background: #fff; color: #111; font: inherit; cursor: pointer; }
-.cl-list button:focus-visible { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #005f6b; }
+.cl-popup .leaflet-popup-content-wrapper { background: var(--color-surface-raised); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius); box-shadow: 0 8px 24px rgb(0 0 0 / 55%); }
+.cl-popup .leaflet-popup-tip { background: var(--color-surface-raised); border: 1px solid var(--color-border); }
+.cl-popup .leaflet-popup-content { margin: 0.75rem 0.75rem 0.75rem; width: auto !important; min-width: 236px; }
+.cl-popup a.leaflet-popup-close-button { top: 6px; right: 6px; width: 28px; height: 28px; font: 1.25rem/28px var(--font-sans); color: var(--color-text-secondary); border-radius: 6px; }
+.cl-popup a.leaflet-popup-close-button:hover { color: var(--color-text-primary); }
+.cl-popup a.leaflet-popup-close-button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.cl-list { font-family: var(--font-sans); color: var(--color-text-primary); }
+.cl-list p { margin: 0; font-size: 0.8125rem; color: var(--color-text-secondary); }
+.cl-title { display: flex; flex-direction: column; gap: 0.1rem; margin: 0 1.5rem 0.6rem 0; font: 600 0.9375rem/1.3 var(--font-sans); }
+.cl-title small { font-weight: 400; font-size: 0.75rem; color: var(--color-text-secondary); }
+.cl-list ul { margin: 0; padding: 0 0.25rem 0 0; list-style: none; max-height: 14rem; overflow-y: auto; overflow-x: hidden; display: grid; gap: 0.35rem; scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; }
+.cl-list button { display: flex; flex-direction: column; gap: 0.1rem; width: 100%; text-align: left; padding: 0.45rem 0.65rem; min-height: 40px; border: 1px solid var(--color-border); border-left: 3px solid var(--pt, var(--color-accent-royal-purple)); border-radius: 6px; background: var(--color-surface); color: var(--color-text-primary); font: inherit; font-size: 0.8125rem; cursor: pointer; }
+.cl-list button:hover { background: var(--color-bg-deep-space); border-color: var(--color-accent-arctic-cyan); border-left-color: var(--pt, var(--color-accent-royal-purple)); }
+.cl-list button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.cl-name { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cl-id { font: 0.6875rem var(--font-mono); color: var(--color-text-secondary); overflow-wrap: anywhere; }
 .leaflet-container { font-family: var(--font-sans); background: var(--color-bg-deep-space); }
 .leaflet-control-attribution { background: rgb(5 7 13 / 80%) !important; color: var(--color-text-secondary) !important; }
 .leaflet-control-attribution a { color: var(--color-accent-arctic-cyan) !important; }

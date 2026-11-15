@@ -29,7 +29,10 @@ or add a host-port mapping in `../../docker/compose.local.yaml`.
 
 ## Imported CSV layers and tasks (migrations `0001`, `0002`)
 
-An import reads a CSV from the server's data directory and a worker loads it.
+An import is run by `scripts/import_csv.sh <file.csv>` on a developer machine,
+which writes straight to PostgreSQL in one transaction (layer id = UUIDv5 of the
+file name, so a re-import replaces the layer). The `tasks` table below is the
+history of the earlier queue-based importer and is no longer written.
 
 - `tasks` (renamed from `import_jobs` by `0002`; a forward rename, not an edit
   of `0001`) — one row per background task: `kind` (`csv_import`), `source_name`,

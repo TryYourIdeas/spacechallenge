@@ -1,9 +1,8 @@
 import { createReadStream } from 'node:fs'
 import { parse } from 'csv-parse'
-import { UnrecoverableError } from 'bullmq'
 
 /** A problem with the CSV file itself; retrying cannot help. Message is user-safe. */
-export class ImportError extends UnrecoverableError {}
+export class ImportError extends Error {}
 
 const LAT = ['lat', 'latitude', 'latitud']
 const LON = ['lon', 'lng', 'long', 'longitude', 'longitud']

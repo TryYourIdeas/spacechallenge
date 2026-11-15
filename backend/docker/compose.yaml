@@ -3,30 +3,24 @@ x-service-defaults: &service-defaults
 
 services:
   app:
-    build: &app-build
+    build:
       context: ../../frontend
       dockerfile: Dockerfile
     <<: *service-defaults
     depends_on:
       postgres:
         condition: service_healthy
-      queue:
-        condition: service_healthy
-    environment: &app-env
-      APP_ROLE: web
+    environment:
       PORT: ${API_CONTAINER_PORT:-8080}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}}
       DATABASE_HOST: postgres
       DATABASE_PORT: "5432"
       DATABASE_NAME: ${POSTGRES_DB:-app}
       DATABASE_USER: ${POSTGRES_USER:-app}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-app}
-      QUEUE_URL: redis://queue:6379/0
-      SOURCE_DIR: /data/source
       MIGRATIONS_DIR: /app/migrations
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
-    volumes: &app-volumes
-      - ${DATA_DIR:-../../data}:/data/source:ro
+    volumes:
       - ../services/database/migrations:/app/migrations:ro
     ports:
       - "127.0.0.1:${API_PORT:-8080}:${API_CONTAINER_PORT:-8080}"
@@ -43,33 +37,8 @@ services:
     mem_limit: 512m
     stop_grace_period: 15s
 
-  worker:
-    build: *app-build
-    <<: *service-defaults
-    depends_on:
-      postgres:
-        condition: service_healthy
-      queue:
-        condition: service_healthy
-    environment:
-      <<: *app-env
-      APP_ROLE: worker
-    volumes: *app-volumes
-    healthcheck:
-      test: ["CMD", "node", "-e", "const s=require('fs').statSync('/tmp/heartbeat');process.exit(Date.now()-s.mtimeMs<30000?0:1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-    read_only: true
-    tmpfs: [/tmp]
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    mem_limit: 768m
-    stop_grace_period: 30s
-
   postgres:
-    image: jlabrada/postgis-pgvector:0.1.0 
+    image: ${POSTGRES_IMAGE:-jlabrada/postgis-pgvector:0.1.0}
     <<: *service-defaults
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-app}
@@ -84,18 +53,5 @@ services:
       timeout: 5s
       retries: 12
 
-  queue:
-    image: ${QUEUE_IMAGE:-redis:7-alpine}
-    <<: *service-defaults
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - queue_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-
 volumes:
   postgres_data:
-  queue_data:

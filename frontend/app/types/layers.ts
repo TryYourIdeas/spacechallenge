@@ -106,28 +106,3 @@ export interface SelectedPoint {
   status?: 'loading' | 'error'
   error?: string
 }
-
-export type TaskStatus = 'queued' | 'processing' | 'done' | 'failed'
-
-/** A server-side background task (CSV import), as sent by the API and its SSE stream. */
-export interface ServerTask {
-  id: string
-  kind: string
-  sourceName: string
-  status: TaskStatus
-  progressDone: number
-  /** null while the file is still being scanned and the row count is unknown. */
-  progressTotal: number | null
-  importedRows: number | null
-  skippedRows: number | null
-  error: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-/** A CSV file available in the server's data directory. */
-export interface DataFile {
-  name: string
-  size: number
-  modifiedAt: string
-}

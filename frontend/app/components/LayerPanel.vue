@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { DataFile, GlobalFilter, Layer, LayerMeta, LayerFilter, ServerTask } from '~/types/layers'
+import type { GlobalFilter, Layer, LayerMeta, LayerFilter } from '~/types/layers'
 import type { LayerState } from '~/composables/useLayers'
 import {
   APOLLO_MISSIONS,
@@ -22,13 +22,7 @@ const props = defineProps<{
   metas: LayerMeta[]
   states: Record<string, LayerState>
   visible: Set<string>
-  tasks: ServerTask[]
   apiError: string
-  eventsOnline: boolean
-  files: DataFile[]
-  filesState: 'idle' | 'loading' | 'ready' | 'error'
-  filesError: string
-  importError: string
   globalFilter: GlobalFilter
   layerFilters: Record<string, LayerFilter>
   remoteCounts: Record<string, number>
@@ -41,9 +35,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   toggle: [id: string]
   retry: [id: string]
-  remove: [id: string]
-  'load-files': []
-  'start-import': [name: string]
   'update:globalFilter': [filter: GlobalFilter]
   'update:layerFilter': [id: string, filter: LayerFilter]
   'reset-all-filters': []
@@ -55,12 +46,9 @@ const emit = defineEmits<{
   'fit-filtered': []
 }>()
 
-const picking = ref(false)
-const confirming = ref<string | null>(null)
 const expandedLayer = ref<string | null>(null)
 const selectedOxideField = ref<Record<string, string>>({})
 const selectedExtraField = ref<Record<string, string>>({})
-const importBtn = ref<HTMLButtonElement>()
 
 const availableCountries = computed(() => countriesForContinent(props.globalFilter.continent))
 const globalActiveCount = computed(() => countGlobalFilters(props.globalFilter))
@@ -179,37 +167,6 @@ function filteredPointCount(layer: Layer): number | null {
   return filterLayerRows(layer, props.globalFilter, f).length
 }
 
-async function remove(id: string) {
-  confirming.value = null
-  emit('remove', id)
-  await nextTick()
-  importBtn.value?.focus()
-}
-
-function togglePicker() {
-  picking.value = !picking.value
-  if (picking.value) emit('load-files')
-}
-
-function choose(name: string) {
-  picking.value = false
-  emit('start-import', name)
-}
-
-const size = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
-const nf = new Intl.NumberFormat('en-US')
-
-function taskText(t: ServerTask): string {
-  switch (t.status) {
-    case 'queued': return 'Queued…'
-    case 'processing':
-      return t.progressTotal === null
-        ? `Scanning file… ${nf.format(t.progressDone)} rows read`
-        : `Importing ${nf.format(t.progressDone)} of ${nf.format(t.progressTotal)} points`
-    case 'done': return `Done: ${nf.format(t.importedRows ?? 0)} points${t.skippedRows ? `, ${nf.format(t.skippedRows)} skipped` : ''}`
-    default: return `Failed${t.error ? `: ${t.error}` : ''}`
-  }
-}
 </script>
 
 <template>
@@ -450,12 +407,6 @@ function taskText(t: ServerTask): string {
               {{ expandedLayer === m.id ? '▲' : '▾' }}
             </button>
 
-            <template v-if="confirming === m.id">
-              <span class="warn" role="alert">Delete {{ m.label }} permanently?</span>
-              <button type="button" class="danger" @click="remove(m.id)">Delete</button>
-              <button type="button" @click="confirming = null">Cancel</button>
-            </template>
-            <button v-else type="button" :aria-label="`Remove layer ${m.label}`" @click="m.imported ? (confirming = m.id) : remove(m.id)">Remove</button>
           </div>
 
           <!-- PER-LAYER FILTER SUB-PANEL -->
@@ -752,43 +703,7 @@ function taskText(t: ServerTask): string {
       </ul>
 
       <div class="import">
-        <button ref="importBtn" type="button" :aria-expanded="picking" aria-controls="file-picker" @click="togglePicker">
-          Import CSV…
-        </button>
-        <p class="muted hint">Choose a file from the server's data directory.</p>
-        <div v-if="picking" id="file-picker" role="group" aria-label="CSV files in the data directory" class="picker">
-          <p v-if="filesState === 'loading'" role="status" class="muted">Loading files…</p>
-          <p v-else-if="filesState === 'error'" role="alert" class="error">{{ filesError }}</p>
-          <p v-else-if="!files.length" class="muted">No CSV files found in the data directory.</p>
-          <ul v-else>
-            <li v-for="f in files" :key="f.name">
-              <button type="button" class="file" @click="choose(f.name)">
-                <span class="fname">{{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
-              </button>
-            </li>
-          </ul>
-        </div>
-        <p v-if="importError" role="alert" class="error">{{ importError }}</p>
         <p v-if="apiError" role="alert" class="error">{{ apiError }}</p>
-        <p v-if="!eventsOnline && tasks.some(t => t.status === 'queued' || t.status === 'processing')" role="status" class="muted hint">
-          Live progress is reconnecting…
-        </p>
-        <ul v-if="tasks.length" class="jobs" aria-label="Import tasks">
-          <li v-for="t in tasks" :key="t.id">
-            <span class="fname">{{ t.sourceName }}</span>
-            <progress
-              v-if="t.status === 'processing' && t.progressTotal !== null"
-              :value="t.progressDone" :max="t.progressTotal" :aria-label="`Import progress for ${t.sourceName}`"
-            />
-            <progress v-else-if="t.status === 'processing' || t.status === 'queued'" :aria-label="`Import progress for ${t.sourceName}`" />
-            <span class="status" :class="{ error: t.status === 'failed' }">{{ taskText(t) }}</span>
-          </li>
-        </ul>
-        <p class="sr-only" role="status" aria-live="polite">
-          <template v-for="t in tasks.slice(0, 3)" :key="t.id">
-            <template v-if="t.status === 'done' || t.status === 'failed'">{{ t.sourceName }}: {{ taskText(t) }}. </template>
-          </template>
-        </p>
       </div>
     </fieldset>
   </div>
@@ -894,14 +809,5 @@ button:hover:not(:disabled) { border-color: var(--color-accent-arctic-cyan); }
 .import { margin-top: 1rem; display: grid; gap: 0.4rem; justify-items: start; }
 .hint { margin: 0; font-size: 0.8125rem; }
 .actions { margin: 0.25rem 0 0 2.1rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
-.warn { font-size: 0.8125rem; color: var(--color-danger); }
-.danger { border-color: var(--color-danger); }
-.jobs { margin-top: 0.5rem; gap: 0.6rem; width: 100%; }
-.picker { width: 100%; max-height: 14rem; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.5rem; background: var(--color-bg-deep-space); }
-.picker ul { gap: 0.25rem; }
-.file { width: 100%; display: flex; justify-content: space-between; gap: 0.75rem; text-align: left; }
-progress { width: 100%; height: 8px; accent-color: var(--color-accent-arctic-cyan); }
-.jobs .status { margin-left: 0; }
-.fname { overflow-wrap: anywhere; font-size: 0.875rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 </style>
