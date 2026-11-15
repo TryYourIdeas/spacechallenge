@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { GlobalFilter, Layer, LayerMeta, LayerFilter } from '~/types/layers'
 import type { LayerState } from '~/composables/useLayers'
+import { estimatedProgress, formatWait, SHOW_AFTER_MS, type LayerLoading } from '~/utils/loading'
 import {
   APOLLO_MISSIONS,
   CONTINENTS,
@@ -32,6 +33,8 @@ const props = defineProps<{
   /** True when the edits differ from the applied filters. */
   dirty: boolean
   remoteCounts: Record<string, number>
+  /** Server layers whose points are being fetched for the current view. */
+  remoteLoading: Record<string, LayerLoading>
 }>()
 
 const emit = defineEmits<{
@@ -43,6 +46,37 @@ const emit = defineEmits<{
   apply: []
   'fit-filtered': []
 }>()
+
+// Clock for the loading bars; it only ticks while a server layer is loading.
+const now = ref(Date.now())
+let clock: ReturnType<typeof setInterval> | undefined
+watch(() => Object.keys(props.remoteLoading).length, (n) => {
+  if (n > 0 && !clock) {
+    now.value = Date.now()
+    clock = setInterval(() => { now.value = Date.now() }, 250)
+  } else if (n === 0 && clock) {
+    clearInterval(clock)
+    clock = undefined
+  }
+}, { immediate: true })
+onBeforeUnmount(() => { if (clock) clearInterval(clock) })
+
+/** What to show while a visible layer is loading: its point count, the wait so far and an estimate. */
+function loadingInfo(id: string) {
+  const l = props.remoteLoading[id]
+  const layer = readyLayer(id)
+  if (!l || !layer?.remote || !props.visible.has(id)) return null
+  const elapsed = now.value - l.since
+  if (elapsed < SHOW_AFTER_MS) return null
+  const filtered = hasActiveFilters(props.appliedGlobalFilter, props.appliedLayerFilters[id])
+  return {
+    count: layer.remote.rowCount,
+    upTo: filtered,
+    waited: formatWait(elapsed),
+    usually: l.estimateMs !== null ? formatWait(l.estimateMs) : null,
+    progress: estimatedProgress(elapsed, l.estimateMs),
+  }
+}
 
 const expandedLayer = ref<string | null>(null)
 const selectedOxideField = ref<Record<string, string>>({})
@@ -320,6 +354,20 @@ function filteredPointCount(layer: Layer): number | null {
             </template>
             <template v-else>Loading…</template>
           </span>
+
+          <div v-if="loadingInfo(m.id)" class="load-wait">
+            <progress
+              :value="loadingInfo(m.id)!.progress ?? undefined"
+              max="1"
+              :aria-label="`Loading ${m.label}`"
+            />
+            <p class="load-text">
+              Loading {{ loadingInfo(m.id)!.upTo ? 'up to ' : '' }}{{ loadingInfo(m.id)!.count.toLocaleString('en-US') }} points…
+              {{ loadingInfo(m.id)!.waited }}
+              <template v-if="loadingInfo(m.id)!.usually"> (last time {{ loadingInfo(m.id)!.usually }})</template>
+              <template v-else> (estimate available after the first load)</template>
+            </p>
+          </div>
 
           <p v-if="m.description" class="muted desc">{{ m.description }}</p>
 
@@ -640,6 +688,10 @@ function filteredPointCount(layer: Layer): number | null {
 
 <style scoped>
 .panel-stack { display: grid; gap: 0.85rem; }
+.load-wait { display: grid; gap: 0.25rem; margin-top: 0.4rem; }
+.load-wait progress { width: 100%; height: 8px; accent-color: var(--color-accent-arctic-cyan); }
+.load-text { margin: 0; font-size: 0.75rem; color: var(--color-text-secondary); }
+@media (prefers-reduced-motion: reduce) { .load-wait progress { animation: none; } }
 .apply-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.5rem 0.65rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-deep-space); }
 .apply-bar.pending { border-color: var(--color-accent-arctic-cyan); }
 .apply-btn { background: var(--color-accent-arctic-cyan); color: #000; border: 1px solid var(--color-accent-arctic-cyan); border-radius: 6px; padding: 0.4rem 1rem; min-height: 40px; font: inherit; font-weight: 600; cursor: pointer; }

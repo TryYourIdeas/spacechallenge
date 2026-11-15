@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { GlobalFilter, Layer, LayerFilter, SelectedPoint } from '~/types/layers'
+import type { LayerLoading } from '~/utils/loading'
 import { defaultGlobalFilter, filtersDiffer, matchesGlobalFilter, matchesLayerFilter } from '~/utils/filters'
 
 const { indexState, indexError, metas, states, visible, toggle, reload, retryLayer, apiError, fetchClusters, fetchPoints, fetchPoint } = useLayers()
@@ -19,6 +20,7 @@ const dirty = computed(() => filtersDiffer(
 ))
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 const remoteCounts = ref<Record<string, number>>({})
+const remoteLoading = ref<Record<string, LayerLoading>>({})
 
 const readyLayers = computed<Layer[]>(() =>
   metas.value.flatMap((m) => {
@@ -123,7 +125,7 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
         :api-error="apiError"
         :global-filter="draftGlobal" :layer-filters="draftLayers"
         :applied-global-filter="globalFilter" :applied-layer-filters="layerFilters" :dirty="dirty"
-        :remote-counts="remoteCounts"
+        :remote-counts="remoteCounts" :remote-loading="remoteLoading"
         @toggle="toggle" @retry="retryLayer"
         @apply="applyFilters"
         @update:global-filter="updateGlobalFilter"
@@ -140,7 +142,7 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
           :layers="readyLayers" :visible="visible" :selected="selected"
           :global-filter="globalFilter" :layer-filters="layerFilters"
           :fetch-clusters="fetchClusters" :fetch-points="fetchPoints"
-          @select="onSelect" @remote-counts="remoteCounts = $event"
+          @select="onSelect" @remote-counts="remoteCounts = $event" @remote-loading="remoteLoading = $event"
         />
       </ClientOnly>
       <PointForm ref="form" :point="selected" @close="clearSelection" @retry="selected && loadDetail(selected)" />

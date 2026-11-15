@@ -2,7 +2,26 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import pg from 'pg'
 
-export const createPool = (databaseUrl: string) => new pg.Pool({ connectionString: databaseUrl, max: 8 })
+export interface PoolLimits {
+  /** The database cancels any statement running longer than this (ms). */
+  statementTimeoutMs?: number
+  /** Waiting for a free connection fails after this long instead of hanging (ms). */
+  connectionTimeoutMs?: number
+}
+
+/**
+ * Connection pool. The API passes limits so a slow query is cancelled by the database and a
+ * request fails fast: without them an abandoned request (serverless timeout, closed tab) leaves
+ * its query running and its connection checked out, which can wedge the whole instance.
+ * Scripts (migrate, import) pass none because their statements legitimately run for minutes.
+ */
+export const createPool = (databaseUrl: string, limits: PoolLimits = {}) =>
+  new pg.Pool({
+    connectionString: databaseUrl,
+    max: 8,
+    ...(limits.statementTimeoutMs ? { statement_timeout: limits.statementTimeoutMs } : {}),
+    ...(limits.connectionTimeoutMs ? { connectionTimeoutMillis: limits.connectionTimeoutMs } : {}),
+  })
 
 /** Applies migrations/*.sql once each, in name order, serialized by an advisory lock. */
 export async function migrate(pool: pg.Pool, dir: string) {

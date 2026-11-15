@@ -31,9 +31,9 @@ two visible layers). Click **×** to turn it off, or **Clear all**.
 
 ## Show and hide layers
 
-Three built-in layers ship with the app: launch sites, ground stations and
-meteorite finds. Each has its own colour and marker shape (triangle, square,
-diamond). Tick or untick a layer's checkbox to show or hide it. The status
+When the app opens, every layer is **hidden** (all checkboxes are unticked) and the map
+says "No layers are shown". Tick a layer's checkbox to show it, untick it to hide it.
+Each layer has its own colour and marker shape (circle, square, diamond, triangle). The status
 shows the point count, and how many rows were skipped for invalid coordinates.
 While a layer loads you see "Loading…"; a failed layer shows an error with a
 **Retry** button.

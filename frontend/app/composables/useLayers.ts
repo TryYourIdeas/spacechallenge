@@ -55,7 +55,9 @@ export function useLayers() {
       if (signal.aborted) return
       const kept = metas.value.filter(m => m.imported)
       metas.value = [...list, ...kept]
-      visible.value = new Set([...list, ...kept].map(m => m.id).filter(id => !kept.some(k => k.id === id) || visible.value.has(id)))
+      // Layers start hidden; on a reload only the choices the user already made are kept.
+      const known = new Set([...list, ...kept].map(m => m.id))
+      visible.value = new Set([...visible.value].filter(id => known.has(id)))
       indexState.value = 'ready'
       await Promise.all([...list.map(m => loadLayer(m, signal)), syncServerLayers(signal)])
     } catch (e) {
@@ -127,7 +129,6 @@ export function useLayers() {
 
   function showServerLayer(meta: LayerMeta) {
     if (!metas.value.some(m => m.id === meta.id)) metas.value = [...metas.value, meta]
-    visible.value = new Set([...visible.value, meta.id])
   }
 
   /** Loads every server layer we don't have yet (page start). */

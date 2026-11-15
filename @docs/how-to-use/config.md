@@ -149,6 +149,11 @@ Limits of serverless hosting:
   reads. `0005_layer_schema_catalog.sql` creates the schema/catalog tables and
   backfills every layer (about 30 s per 120k points); until it runs, the API returns
   no catalog and the filters fall back to their generic defaults.
+- The API's connection pool cancels statements after 12 s (`statement_timeout`) and
+  fails a wait for a free connection after 5 s (`API_STATEMENT_TIMEOUT_MS` and
+  `API_CONNECTION_TIMEOUT_MS` in `server/utils/services.ts`). The migrate and import
+  scripts have no such limit. Without limits, a request abandoned by a serverless
+  timeout leaves its query running and can wedge the instance.
 - Import data from your machine with the script (below); Vercel serves what is
   in the database.
 - The API is read-only but has no authentication (see below); a public Vercel URL exposes all layer data. Enable Vercel Deployment Protection if the data is private.
