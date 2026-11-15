@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { bboxEnvelopes, cellSizeDegrees, parseBbox, parseRowIdx, parseZoom } from '../../server/utils/clusters'
+import { bboxEnvelopes, cellSizeDegrees, parseBbox, parseFilterParam, parseRowIdx, parseZoom } from '../../server/utils/clusters'
+import { filterPredicate } from '../../server/utils/points'
 
 describe('cellSizeDegrees', () => {
   it('halves with every zoom level', () => {
@@ -41,4 +42,33 @@ describe('bboxEnvelopes', () => {
 describe('parseRowIdx', () => {
   it.each([['0', 0], ['42', 42]])('accepts %s', (raw, n) => expect(parseRowIdx(raw)).toBe(n))
   it.each([undefined, '', '-1', '1.5', 'x', '99999999999'])('rejects %s', raw => expect(parseRowIdx(raw)).toBeNull())
+})
+
+describe('parseFilterParam & filterPredicate', () => {
+  it('returns undefined when filter is empty and parses valid filter JSON', () => {
+    expect(parseFilterParam(undefined)).toBeUndefined()
+    expect(parseFilterParam('')).toBeUndefined()
+    const valid = JSON.stringify({
+      brazilField: 'c18',
+      distance: { lat: 4.7, lon: -60.7, km: 500 },
+      mode: 'and',
+      rules: [
+        { kind: 'text', field: 'c2', values: ['Olivine'], hideMissing: true },
+        { kind: 'range', field: 'c7', min: 45, max: 52, hideMissing: true },
+      ],
+    })
+    const parsed = parseFilterParam(valid)
+    expect(parsed).toBeTruthy()
+    const pred = filterPredicate(parsed!, 3)
+    expect(pred.sql).toContain('ST_DWithin')
+    expect(pred.sql).toContain('ILIKE')
+    expect(pred.params[0]).toBe('c18')
+  })
+
+  it('rejects malformed JSON, non-c<N> field keys, or out-of-range coordinates', () => {
+    expect(parseFilterParam('{bad')).toBeNull()
+    expect(parseFilterParam(JSON.stringify({ brazilField: 'sql_inject' }))).toBeNull()
+    expect(parseFilterParam(JSON.stringify({ distance: { lat: 95, lon: 0, km: 100 } }))).toBeNull()
+    expect(parseFilterParam(JSON.stringify({ rules: [{ kind: 'range', field: 'bad', min: 1 }] }))).toBeNull()
+  })
 })

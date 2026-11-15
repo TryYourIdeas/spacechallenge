@@ -3,7 +3,36 @@ import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { migrate } from '../../server/utils/db'
-import { clusterPoints, inBox, layerSummary, listPoints, pointDetail } from '../../server/utils/points'
+import { clusterPoints, filterPredicate, inBox, layerSummary, listPoints, pointDetail } from '../../server/utils/points'
+
+describe('filterPredicate SQL builder', () => {
+  it('returns TRUE when no filter is supplied', () => {
+    expect(filterPredicate(undefined, 2)).toEqual({ sql: 'TRUE', params: [] })
+  })
+
+  it('builds parameterized SQL for boxes, distance, range, and text rules', () => {
+    const res = filterPredicate({
+      mode: 'and',
+      brazilField: 'c5',
+      boxes: [{ west: -75, south: -35, east: -34, north: 6 }],
+      distance: { lat: -15, lon: -47, km: 300 },
+      rules: [
+        { field: 'c0', kind: 'range', min: 45, max: 52, hideMissing: true },
+        { field: 'c1', kind: 'text', values: ['THOLEIITIC BASALT'], hideMissing: true },
+      ],
+    }, 3)
+    expect(res.sql).toContain('ST_MakeEnvelope($4, $5, $6, $7, 4326)')
+    expect(res.sql).toContain('ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint($8, $9), 4326)::geography, $10)')
+    expect(res.sql).toContain('ILIKE $15')
+    expect(res.params).toEqual([
+      'c5',
+      -75, -35, -34, 6,
+      -47, -15, 300000,
+      'c0', 45, 52,
+      'c1', '%THOLEIITIC BASALT%',
+    ])
+  })
+})
 
 // Runs against a real PostgreSQL with PostGIS. Point TEST_DATABASE_URL at any database the
 // role may CREATE DATABASE in (the Compose `app` role can); a scratch database is created and dropped.
@@ -106,6 +135,19 @@ describe.skipIf(!adminUrl)('PostGIS clustering (integration)', () => {
     expect(await layerSummary(pool, randomUUID())).toBeUndefined()
     expect(await pointDetail(pool, layer, 3)).toEqual({ id: '3', latitude: 20, longitude: -50, name: 'far', c0: 4 })
     expect(await pointDetail(pool, layer, 999)).toBeUndefined()
+  })
+
+  it('filters clusters and point lists by distance and JSONB range rules', async () => {
+    const flt = {
+      mode: 'and' as const,
+      distance: { lat: 10, lon: 10, km: 50 },
+      rules: [{ field: 'c0', kind: 'range' as const, min: 1, max: 2, hideMissing: true }],
+    }
+    const clustered = await clusterPoints(pool, layer, world, 19, 100, flt)
+    expect(clustered.filteredCount).toBe(2)
+    expect(clustered.items.map(i => i.name).sort()).toEqual(['a', 'b'])
+    const listed = await listPoints(pool, layer, world, 50, flt)
+    expect(listed.points.map(p => p.name)).toEqual(['a', 'b'])
   })
 
   it('reads a viewport through the GiST index on a larger layer', async () => {
