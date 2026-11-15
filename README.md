@@ -1,4 +1,8 @@
 # spacechallenge
+Access project here: https://spacechallenge-gamma.vercel.app/
+
+Live demo: https://drive.google.com/file/d/1ZUW1Fs7UxsDBY1_JiLsqSCYN5EyRk4cL/view?usp=sharing
+
 
 Layer Explorer: a Nuxt 4 / Vue 3 SPA that shows point layers on a Leaflet map.
 Built-in layers are static JSON; CSV files are imported into PostgreSQL with a
