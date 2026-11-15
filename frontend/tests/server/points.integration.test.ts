@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { migrate } from '../../server/utils/db'
+import { createPool, migrate } from '../../server/utils/db'
 import { clusterPoints, filterPredicate, inBox, layerSummary, listPoints, pointDetail } from '../../server/utils/points'
 
 describe('filterPredicate SQL builder', () => {
@@ -332,6 +332,39 @@ describe.skipIf(!adminUrl)('PostGIS clustering (integration)', () => {
          VALUES ($1, 'c0', 1, 0, 'select', NULL)`, [l]),
       ).rejects.toThrow(/options_shape/)
     })
+  })
+
+  it('cancels statements that exceed the API statement timeout, and keeps the pool usable', async () => {
+    const url = new URL(adminUrl!)
+    url.pathname = `/${dbName}`
+    const limited = createPool(url.toString(), { statementTimeoutMs: 300, connectionTimeoutMs: 2000 })
+    try {
+      const t = Date.now()
+      await expect(limited.query('SELECT pg_sleep(5)')).rejects.toThrow(/statement timeout/)
+      expect(Date.now() - t).toBeLessThan(3000)
+      expect((await limited.query('SELECT 1 AS ok')).rows[0].ok).toBe(1)
+      // No leftover session keeps running the cancelled statement on the server.
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1 AND query LIKE 'SELECT pg_sleep%' AND state = 'active'`, [dbName])
+      expect(rows[0].n).toBe(0)
+    } finally {
+      await limited.end()
+    }
+  })
+
+  it('fails fast instead of hanging when no connection is free', async () => {
+    const url = new URL(adminUrl!)
+    url.pathname = `/${dbName}`
+    const limited = createPool(url.toString(), { connectionTimeoutMs: 400 })
+    const held = await Promise.all(Array.from({ length: 8 }, () => limited.connect()))
+    try {
+      const t = Date.now()
+      await expect(limited.query('SELECT 1')).rejects.toThrow(/timeout/i)
+      expect(Date.now() - t).toBeLessThan(2500)
+    } finally {
+      held.forEach(c => c.release())
+      await limited.end()
+    }
   })
 
   it('reads a viewport through the GiST index on a larger layer', async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { formatValue, isValidCoordinate, parseCatalog, parseClusterResponse, parseLayer, parseLayerIndex, parsePointList, parsePointRow, parseRemoteLayer } from '../app/utils/layers'
+import { estimatedProgress, formatWait } from '../app/utils/loading'
 import type { LayerMeta } from '../app/types/layers'
 
 const meta: LayerMeta = { id: 'a', label: 'A', description: '', shape: 'circle', color: '#00E5FF', source: 'a.json' }
@@ -127,5 +128,26 @@ describe('parseCatalog and remote layers', () => {
     const layer = parseRemoteLayer(meta, { fields: [{ key: 'c1', label: 'x', type: 'string' }], catalog: [entry], rowCount: 5, skipped: 0, bounds: null })
     expect(layer.catalog).toHaveLength(1)
     expect(parseRemoteLayer(meta, { fields: [], rowCount: 0, bounds: null }).catalog).toEqual([])
+  })
+})
+
+describe('loading feedback', () => {
+  it('is indeterminate until a previous load time is known', () => {
+    expect(estimatedProgress(3000, null)).toBeNull()
+    expect(estimatedProgress(3000, 0)).toBeNull()
+  })
+  it('estimates from the last load time and never reaches 100% before the response', () => {
+    expect(estimatedProgress(0, 4000)).toBe(0)
+    expect(estimatedProgress(1000, 4000)).toBe(0.25)
+    expect(estimatedProgress(4000, 4000)).toBe(0.95)
+    expect(estimatedProgress(60000, 4000)).toBe(0.95)
+    expect(estimatedProgress(-5, 4000)).toBe(0)
+  })
+  it('formats waits in seconds and minutes', () => {
+    expect(formatWait(0)).toBe('0 s')
+    expect(formatWait(2400)).toBe('2 s')
+    expect(formatWait(59_400)).toBe('59 s')
+    expect(formatWait(65_000)).toBe('1 min 05 s')
+    expect(formatWait(-10)).toBe('0 s')
   })
 })

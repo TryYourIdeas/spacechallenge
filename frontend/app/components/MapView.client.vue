@@ -12,6 +12,7 @@ import {
   type ProximityPeer,
   type ServerFilterPayload,
 } from '~/utils/filters'
+import type { LayerLoading } from '~/utils/loading'
 import { clusterSize, viewportBbox } from '~/utils/viewport'
 
 const props = defineProps<{
@@ -28,6 +29,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [point: SelectedPoint, viaKeyboard: boolean]
   'remote-counts': [counts: Record<string, number>]
+  'remote-loading': [loading: Record<string, LayerLoading>]
 }>()
 
 const MAX_ZOOM = 19
@@ -40,6 +42,12 @@ const markers = new Map<string, { marker: L.Marker; layer: Layer }>()
 const remoteKeys = new Map<string, string[]>()
 const remoteFilteredBounds = new Map<string, LatLngBoundsTuple | null>()
 const remoteCounts = reactive<Record<string, number>>({})
+// Server layers being fetched right now, and how long each one took last time (the estimate).
+const loadingNow: Record<string, LayerLoading & { token: number }> = {}
+const lastFetchMs = new Map<string, number>()
+let loadToken = 0
+const emitLoading = () => emit('remote-loading', Object.fromEntries(
+  Object.entries(loadingNow).map(([id, l]) => [id, { since: l.since, estimateMs: l.estimateMs }])))
 const key = (layerId: string, rowId: string) => `${layerId}\u0000${rowId}`
 
 // Viewport loading state for server layers, announced to assistive technology.
@@ -65,6 +73,8 @@ function peersOf(layer: Layer): ProximityPeer[] {
     .filter(l => l.remote && l.id !== layer.id && props.visible.has(l.id))
     .map(l => ({ layer: l, filter: props.layerFilters[l.id] }))
 }
+
+const hasVisibleLayer = computed(() => props.layers.some(l => props.visible.has(l.id)))
 
 const visibleFilteredSummary = computed(() => {
   if (!anyFilterActive.value) return ''
@@ -261,11 +271,17 @@ async function refreshRemote() {
   refreshCtl?.abort()
   const targets = props.layers.filter(l => l.remote && l.remote.rowCount > 0 && props.visible.has(l.id))
   if (!targets.length) {
+    for (const id of Object.keys(loadingNow)) delete loadingNow[id]
+    emitLoading()
     view.loading = false; view.error = ''; view.truncated = false
     if (pendingFilterFit) { pendingFilterFit = false; fitFiltered() }
     return
   }
   const ctl = (refreshCtl = new AbortController())
+  const myToken = ++loadToken
+  for (const l of targets) loadingNow[l.id] = { since: Date.now(), estimateMs: lastFetchMs.get(l.id) ?? null, token: myToken }
+  for (const id of Object.keys(loadingNow)) if (!targets.some(l => l.id === id)) delete loadingNow[id]
+  emitLoading()
   const b = map.getBounds()
   const bbox = viewportBbox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() })
   const zoom = Math.round(map.getZoom())
@@ -277,6 +293,8 @@ async function refreshRemote() {
       const payload = buildServerFilterPayload(layer, props.globalFilter, props.layerFilters[layer.id], peersOf(layer))
       const res = await props.fetchClusters(layer.id, bbox, zoom, ctl.signal, payload)
       if (ctl.signal.aborted) return
+      const started = loadingNow[layer.id]
+      if (started?.token === myToken) lastFetchMs.set(layer.id, Date.now() - started.since)
       renderClusters(layer, res)
       if (res.filteredCount !== undefined) {
         remoteCounts[layer.id] = res.filteredCount
@@ -292,6 +310,8 @@ async function refreshRemote() {
     }
   }))
   if (ctl.signal.aborted) return // a newer request owns the status now
+  for (const [id, l] of Object.entries(loadingNow)) if (l.token === myToken) delete loadingNow[id]
+  emitLoading()
   emit('remote-counts', { ...remoteCounts })
   view.loading = false
   view.error = error
@@ -393,7 +413,8 @@ watch(
   <div class="map-wrap">
     <div ref="el" class="map" role="region" aria-label="Map of layer points. Markers are keyboard focusable; press Enter to open a point or zoom into a cluster." />
     <div class="map-status" aria-live="polite">
-      <p v-if="view.loading" class="chipnote">Loading points in view…</p>
+      <p v-if="!hasVisibleLayer && layers.length > 0" class="chipnote">No layers are shown. Tick a layer in the panel to show it.</p>
+      <p v-else-if="view.loading" class="chipnote">Loading points in view…</p>
       <p v-else-if="view.error" class="chipnote err" role="alert">
         Could not load points. {{ view.error }}
         <button type="button" @click="scheduleRefresh">Retry</button>

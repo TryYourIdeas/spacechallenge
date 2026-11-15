@@ -11,10 +11,22 @@ What Layer Explorer does today. Keep this list in step with the code.
   table). The manifest is currently empty; the old sample tables
   (`launch-sites.json`, `ground-stations.json`, `meteorites.json`) remain on disk
   but are not listed. Layers come from CSV imports.
-- Distinct marker shape and colour per layer; per-layer visibility toggles.
+- Distinct marker shape and colour per layer; per-layer visibility toggles. All layers start hidden when the app opens; the map says so until one is ticked.
 - Per-layer status: point count, skipped invalid rows, loading and error states
   with retry.
 - Clicking a point opens a closeable dialog on the right of the map with all its fields (close with the × button, Close, or Esc).
+
+## Loading feedback and limits
+
+- When a layer is ticked (or the view changes) and its points take longer than about
+  0.4 s to arrive, the layer card shows a progress bar, the number of points
+  ("Loading 207,936 points…", "up to" when filters are applied) and the time waited.
+  The server cannot report real progress for one query, so the bar is indeterminate
+  the first time and afterwards an estimate based on that layer's previous load time
+  (capped at 95% until the data arrives).
+- The API protects itself: the database cancels any API query running longer than
+  12 s and a request waits at most 5 s for a free connection, so a slow request
+  fails with an error and a Retry instead of hanging the server.
 
 ## Apply filters
 
