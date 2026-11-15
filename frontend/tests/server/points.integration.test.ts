@@ -10,24 +10,21 @@ describe('filterPredicate SQL builder', () => {
     expect(filterPredicate(undefined, 2)).toEqual({ sql: 'TRUE', params: [] })
   })
 
-  it('builds parameterized SQL for boxes, distance, range, and text rules', () => {
+  it('builds parameterized SQL for boxes, range, and text rules', () => {
     const res = filterPredicate({
       mode: 'and',
       brazilField: 'c5',
       boxes: [{ west: -75, south: -35, east: -34, north: 6 }],
-      distance: { lat: -15, lon: -47, km: 300 },
       rules: [
         { field: 'c0', kind: 'range', min: 45, max: 52, hideMissing: true },
         { field: 'c1', kind: 'text', values: ['THOLEIITIC BASALT'], hideMissing: true },
       ],
     }, 3)
     expect(res.sql).toContain('ST_MakeEnvelope($4, $5, $6, $7, 4326)')
-    expect(res.sql).toContain('ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint($8, $9), 4326)::geography, $10)')
-    expect(res.sql).toContain('ILIKE $15')
+    expect(res.sql).toContain('ILIKE $12')
     expect(res.params).toEqual([
       'c5',
       -75, -35, -34, 6,
-      -47, -15, 300000,
       'c0', 45, 52,
       'c1', '%THOLEIITIC BASALT%',
     ])
@@ -137,10 +134,10 @@ describe.skipIf(!adminUrl)('PostGIS clustering (integration)', () => {
     expect(await pointDetail(pool, layer, 999)).toBeUndefined()
   })
 
-  it('filters clusters and point lists by distance and JSONB range rules', async () => {
+  it('filters clusters and point lists by region box and JSONB range rules', async () => {
     const flt = {
       mode: 'and' as const,
-      distance: { lat: 10, lon: 10, km: 50 },
+      boxes: [{ west: 9, south: 9, east: 11, north: 11 }],
       rules: [{ field: 'c0', kind: 'range' as const, min: 1, max: 2, hideMissing: true }],
     }
     const clustered = await clusterPoints(pool, layer, world, 19, 100, flt)
@@ -148,6 +145,68 @@ describe.skipIf(!adminUrl)('PostGIS clustering (integration)', () => {
     expect(clustered.items.map(i => i.name).sort()).toEqual(['a', 'b'])
     const listed = await listPoints(pool, layer, world, 50, flt)
     expect(listed.points.map(p => p.name)).toEqual(['a', 'b'])
+  })
+
+  describe('cross-layer proximity (near)', () => {
+    const l1 = randomUUID(), l2 = randomUUID(), l3 = randomUUID()
+    const names = async (id: string, flt: Parameters<typeof clusterPoints>[5]) =>
+      (await clusterPoints(pool, id, world, 22, 100, flt)).items.map(i => i.name).sort()
+    const rule = (min: number, max: number) => ({ field: 'c0', kind: 'range' as const, min, max, hideMissing: true })
+
+    beforeAll(async () => {
+      // ~1.1 km per 0.01 degree of longitude at the equator.
+      await addLayer(l1, [[0, 0, 'p1'], [0, 0.02, 'p2'], [5, 5, 'p3'], [0, 179.995, 'p-east']])
+      await addLayer(l2, [[0, 0.01, 'q1'], [40, 40, 'q2'], [0, -179.995, 'q-west']])
+      await addLayer(l3, [[5, 5.001, 'r1']])
+    })
+
+    it('keeps only points that have a match in the other layer within the radius, in both directions', async () => {
+      expect(await names(l1, { near: { km: 5, layers: [{ layerId: l2, filter: {} }] } })).toEqual(['p-east', 'p1', 'p2'])
+      expect(await names(l2, { near: { km: 5, layers: [{ layerId: l1, filter: {} }] } })).toEqual(['q-west', 'q1'])
+    })
+
+    it('measures real distance: a smaller radius drops the farther point', async () => {
+      // p1 is ~1.1 km from q1 and p2 ~1.1 km too; nothing is within 0.5 km.
+      expect(await names(l1, { near: { km: 0.5, layers: [{ layerId: l2, filter: {} }] } })).toEqual([])
+      expect(await names(l1, { near: { km: 1.5, layers: [{ layerId: l2, filter: {} }] } })).toEqual(['p-east', 'p1', 'p2'])
+    })
+
+    it("only counts matches that pass the other layer's own filters", async () => {
+      // q1 is row 0 (c0 = 1), q2 is c0 = 2, q-west c0 = 3.
+      const onlyQ2 = { near: { km: 5, layers: [{ layerId: l2, filter: { rules: [rule(2, 2)] } }] } }
+      expect(await names(l1, onlyQ2)).toEqual([])
+      const onlyQ1 = { near: { km: 5, layers: [{ layerId: l2, filter: { rules: [rule(1, 1)] } }] } }
+      expect(await names(l1, onlyQ1)).toEqual(['p1', 'p2'])
+    })
+
+    it('combines with the layer’s own filters', async () => {
+      const f = { rules: [rule(1, 1)], near: { km: 5, layers: [{ layerId: l2, filter: {} }] } }
+      expect(await names(l1, f)).toEqual(['p1'])
+    })
+
+    it('with several other layers, a point needs a match in every one of them', async () => {
+      const both = { near: { km: 5, layers: [{ layerId: l2, filter: {} }, { layerId: l3, filter: {} }] } }
+      expect(await names(l1, both)).toEqual([])
+      expect(await names(l1, { near: { km: 5, layers: [{ layerId: l3, filter: {} }] } })).toEqual(['p3'])
+    })
+
+    it('counts and lists with the proximity applied', async () => {
+      const f = { near: { km: 5, layers: [{ layerId: l2, filter: {} }] } }
+      const res = await clusterPoints(pool, l1, world, 3, 100, f)
+      expect(res.filteredCount).toBe(3)
+      const listed = await listPoints(pool, l1, world, 50, f)
+      expect(listed.points.map(p => p.name).sort()).toEqual(['p-east', 'p1', 'p2'])
+    })
+
+    it('uses the geography index for the proximity lookup', async () => {
+      const pred = filterPredicate({ near: { km: 5, layers: [{ layerId: l2, filter: {} }] } }, 2)
+      await pool.query('ANALYZE layer_points')
+      await pool.query('SET enable_seqscan = off')
+      const { rows } = await pool.query(
+        `EXPLAIN SELECT row_idx FROM layer_points WHERE layer_id = $1 AND ${pred.sql}`, [l1, ...pred.params])
+      await pool.query('RESET enable_seqscan')
+      expect(rows.map(r => r['QUERY PLAN']).join('\n')).toContain('layer_points_geog_idx')
+    })
   })
 
   it('reads a viewport through the GiST index on a larger layer', async () => {

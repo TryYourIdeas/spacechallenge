@@ -60,48 +60,40 @@ export interface ParsedFilterRule {
   hideMissing?: boolean
 }
 
-export interface Circle { lat: number; lon: number; km: number }
-export const MAX_CIRCLES = 200
+/** Largest cross-layer proximity radius accepted, in km (about half the Earth's circumference). */
+export const MAX_NEAR_KM = 20000
+/** Most other layers one proximity filter may reference. */
+export const MAX_NEAR_LAYERS = 50
 
-export interface ParsedServerFilter {
+/** A layer's own filters (region and per-layer rules), without proximity. */
+export interface ParsedLayerFilter {
   boxes?: Bbox[]
-  distance?: Circle
-  distances?: Circle[]
   brazilField?: string
   mode?: 'and' | 'or'
   rules?: ParsedFilterRule[]
 }
 
+/** Another layer a point must have a match in: that layer's id and its own filters. */
+export interface NearLayer { layerId: string; filter: ParsedLayerFilter }
+
+/**
+ * Cross-layer proximity: a point passes only when EVERY listed layer has a point, passing
+ * that layer's own filters, within `km` kilometres of it.
+ */
+export interface NearFilter { km: number; layers: NearLayer[] }
+
+export interface ParsedServerFilter extends ParsedLayerFilter {
+  near?: NearFilter
+}
+
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
-function parseCircle(v: unknown): Circle | null {
-  if (!isObj(v)) return null
-  const { lat, lon, km } = v
-  if (
-    typeof lat !== 'number' || typeof lon !== 'number' || typeof km !== 'number' ||
-    !Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(km) ||
-    lat < -90 || lat > 90 || lon < -180 || lon > 180 || km <= 0 || km > 25000
-  ) return null
-  return { lat, lon, km }
-}
+const LAYER_ID = /^[0-9a-fA-F-]{36}$/
 
-/**
- * Parses and validates an optional JSON `?filter=` query string.
- * Returns `undefined` when absent/empty, or `null` when malformed.
- */
-export function parseFilterParam(raw: unknown): ParsedServerFilter | undefined | null {
-  if (raw === undefined || raw === null || raw === '') return undefined
-  if (typeof raw !== 'string' || raw.length > 32768) return null
-  let obj: unknown
-  try {
-    obj = JSON.parse(raw)
-  } catch {
-    return null
-  }
-  if (!isObj(obj)) return null
-
-  const out: ParsedServerFilter = {}
+/** Parses the region and rule parts of a filter object; `null` when malformed. */
+function parseLayerFilter(obj: Record<string, unknown>): ParsedLayerFilter | null {
+  const out: ParsedLayerFilter = {}
 
   if (obj.brazilField !== undefined) {
     if (typeof obj.brazilField !== 'string' || !FIELD_KEY.test(obj.brazilField)) return null
@@ -125,24 +117,6 @@ export function parseFilterParam(raw: unknown): ParsedServerFilter | undefined |
       boxes.push({ west, south, east, north })
     }
     out.boxes = boxes
-  }
-
-  if (obj.distance !== undefined) {
-    const d = parseCircle(obj.distance)
-    if (!d) return null
-    out.distance = d
-  }
-
-  // Several radius circles: a point passes when it lies inside ANY of them.
-  if (obj.distances !== undefined) {
-    if (!Array.isArray(obj.distances) || obj.distances.length === 0 || obj.distances.length > MAX_CIRCLES) return null
-    const list: Circle[] = []
-    for (const c of obj.distances) {
-      const d = parseCircle(c)
-      if (!d) return null
-      list.push(d)
-    }
-    out.distances = list
   }
 
   if (obj.mode !== undefined) {
@@ -176,6 +150,42 @@ export function parseFilterParam(raw: unknown): ParsedServerFilter | undefined |
       }
     }
     if (rules.length > 0) out.rules = rules
+  }
+
+  return out
+}
+
+/**
+ * Parses and validates an optional JSON `?filter=` query string.
+ * Returns `undefined` when absent/empty, or `null` when malformed.
+ */
+export function parseFilterParam(raw: unknown): ParsedServerFilter | undefined | null {
+  if (raw === undefined || raw === null || raw === '') return undefined
+  if (typeof raw !== 'string' || raw.length > 65536) return null
+  let obj: unknown
+  try {
+    obj = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!isObj(obj)) return null
+
+  const out: ParsedServerFilter | null = parseLayerFilter(obj)
+  if (!out) return null
+
+  if (obj.near !== undefined) {
+    if (!isObj(obj.near)) return null
+    const { km, layers } = obj.near
+    if (typeof km !== 'number' || !Number.isFinite(km) || km <= 0 || km > MAX_NEAR_KM) return null
+    if (!Array.isArray(layers) || layers.length === 0 || layers.length > MAX_NEAR_LAYERS) return null
+    const list: NearLayer[] = []
+    for (const l of layers) {
+      if (!isObj(l) || typeof l.layerId !== 'string' || !LAYER_ID.test(l.layerId)) return null
+      const f = l.filter === undefined ? {} : isObj(l.filter) ? parseLayerFilter(l.filter) : null
+      if (!f) return null
+      list.push({ layerId: l.layerId, filter: f })
+    }
+    out.near = { km, layers: list }
   }
 
   return Object.keys(out).length > 0 ? out : undefined

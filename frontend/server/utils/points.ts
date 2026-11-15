@@ -1,5 +1,5 @@
 import type { Pool } from 'pg'
-import { bboxEnvelopes, cellSizeDegrees, type Bbox, type ParsedServerFilter } from './clusters'
+import { bboxEnvelopes, cellSizeDegrees, type Bbox, type ParsedLayerFilter, type ParsedServerFilter } from './clusters'
 
 export interface ClusterItem {
   /** Number of points in the cell; 1 means a single point (`id`/`name` set). */
@@ -41,11 +41,16 @@ export function inBox(bbox: Bbox, first: number): { sql: string; params: number[
 }
 
 /**
- * Parameterized SQL predicate for global (continent/country/distance) and per-layer
+ * Parameterized SQL predicate for global (continent/country/proximity) and per-layer
  * (mineral, lunar similarity, oxide ranges, categories) filters.
+ *
+ * Proximity (`filter.near`) is an EXISTS per other layer, correlated with the outer
+ * `layer_points` row. The inner subquery aliases its table `o`, so the other layer's
+ * own filters (which use unqualified column names) bind to `o`, and the outer row is
+ * reached as `layer_points`. Callers must therefore query `layer_points` unaliased.
  */
 export function filterPredicate(
-  filter: ParsedServerFilter | undefined,
+  filter: ParsedServerFilter | ParsedLayerFilter | undefined,
   first: number,
 ): { sql: string; params: (number | string)[] } {
   if (!filter) return { sql: 'TRUE', params: [] }
@@ -73,17 +78,6 @@ export function filterPredicate(
       }
     }
     if (boxParts.length > 0) clauses.push(`(${boxParts.join(' OR ')})`)
-  }
-
-  const circles = [...(filter.distance ? [filter.distance] : []), ...(filter.distances ?? [])]
-  if (circles.length > 0) {
-    const parts = circles.map((c) => {
-      const pLon = push(c.lon)
-      const pLat = push(c.lat)
-      const pMeters = push(c.km * 1000)
-      return `ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(${pLon}, ${pLat}), 4326)::geography, ${pMeters})`
-    })
-    clauses.push(parts.length === 1 ? parts[0]! : `(${parts.join(' OR ')})`)
   }
 
   if (filter.rules && filter.rules.length > 0) {
@@ -127,6 +121,21 @@ export function filterPredicate(
     if (ruleSqls.length > 0) {
       const joiner = filter.mode === 'or' ? ' OR ' : ' AND '
       clauses.push(`(${ruleSqls.join(joiner)})`)
+    }
+  }
+
+  const near = 'near' in filter ? filter.near : undefined
+  if (near) {
+    const pKm = push(near.km)
+    for (const other of near.layers) {
+      const pLayer = push(other.layerId)
+      // Number the other layer's own filter parameters after everything pushed so far.
+      const inner = filterPredicate(other.filter, first + params.length)
+      params.push(...inner.params)
+      clauses.push(
+        `EXISTS (SELECT 1 FROM layer_points o WHERE o.layer_id = ${pLayer}::uuid` +
+        ` AND ST_DWithin(o.geom::geography, layer_points.geom::geography, ${pKm}::float8 * 1000)` +
+        `${inner.sql === 'TRUE' ? '' : ` AND ${inner.sql}`})`)
     }
   }
 

@@ -9,12 +9,10 @@ import {
   defaultLayerFilter,
   detectLayerCapabilities,
   filterLayerRows,
-  haversineKm,
   isSentinelOrNull,
   matchesGlobalFilter,
   matchesLayerFilter,
   normalizeRockOrMineral,
-  regionCenter,
 } from '../app/utils/filters'
 
 const sampleLayer: Layer = {
@@ -101,55 +99,25 @@ describe('normalizeRockOrMineral & isSentinelOrNull', () => {
   })
 })
 
-describe('countriesForContinent & haversineKm', () => {
-  it('filters countries by continent and resolves region centers', () => {
+describe('countriesForContinent', () => {
+  it('filters countries by continent', () => {
     const sa = countriesForContinent('south-america')
     expect(sa.some(c => c.id === 'BR')).toBe(true)
     expect(sa.some(c => c.id === 'US')).toBe(false)
-    expect(regionCenter('north-america', '')).toEqual({
-      lat: 39.828,
-      lon: -98.579,
-      label: 'North & Central America Center',
-    })
-    expect(regionCenter('north-america', 'CA')).toEqual({
-      lat: 56.13,
-      lon: -106.346,
-      label: 'Canada Center',
-    })
-    expect(regionCenter('', '')).toBeNull()
-  })
-
-  it('computes distance in km accurately', () => {
-    expect(haversineKm(0, 0, 0, 0)).toBe(0)
-    const d = haversineKm(4.7278, -60.7102, 4.8, -60.8)
-    expect(d).toBeGreaterThan(5)
-    expect(d).toBeLessThan(20)
   })
 })
 
 describe('matchesGlobalFilter', () => {
-  it('filters by continent, country (Brazil flag), and radius in km', () => {
+  it('filters by continent and country (Brazil flag)', () => {
     const g = { ...defaultGlobalFilter(), continent: 'south-america', country: 'BR' }
     expect(countGlobalFilters(g)).toBe(2)
     expect(matchesGlobalFilter(sampleLayer.rows[0]!, sampleLayer.fields, g)).toBe(true)
     expect(matchesGlobalFilter(sampleLayer.rows[1]!, sampleLayer.fields, g)).toBe(false)
 
-    const withRadius = { ...g, distanceKm: 100, originLat: 4.7278, originLon: -60.7102 }
-    expect(countGlobalFilters(withRadius)).toBe(3)
-    expect(matchesGlobalFilter(sampleLayer.rows[0]!, sampleLayer.fields, withRadius)).toBe(true)
-    expect(matchesGlobalFilter(sampleLayer.rows[2]!, sampleLayer.fields, withRadius)).toBe(false)
-
-    const withTwoCircles = {
-      ...defaultGlobalFilter(),
-      circles: [
-        { id: 'c1', lat: 4.7278, lon: -60.7102, km: 50, label: 'RR' },
-        { id: 'c2', lat: 57.35, lon: -6.2, km: 50, label: 'Skye' },
-      ],
-    }
-    expect(countGlobalFilters(withTwoCircles)).toBe(2)
-    expect(matchesGlobalFilter(sampleLayer.rows[0]!, sampleLayer.fields, withTwoCircles)).toBe(true)
-    expect(matchesGlobalFilter(sampleLayer.rows[1]!, sampleLayer.fields, withTwoCircles)).toBe(true)
-    expect(matchesGlobalFilter(sampleLayer.rows[2]!, sampleLayer.fields, withTwoCircles)).toBe(false)
+    // Proximity is a cross-layer filter: it counts as a global filter but never drops a row here.
+    const withProximity = { ...g, proximityKm: 5 }
+    expect(countGlobalFilters(withProximity)).toBe(3)
+    expect(matchesGlobalFilter(sampleLayer.rows[0]!, sampleLayer.fields, withProximity)).toBe(true)
   })
 })
 
@@ -191,28 +159,44 @@ describe('matchesLayerFilter & filterLayerRows', () => {
     expect(kept.map(r => r.id)).toEqual(['rr1', 'uk1'])
   })
 
-  it('builds a server filter payload for remote layers', () => {
-    const g = { ...defaultGlobalFilter(), country: 'BR', distanceKm: 500, originLat: 4.7, originLon: -60.7 }
-    const f = { ...defaultLayerFilter(), minerals: ['Olivine'], similarityPreset: 'high_chem_temp' }
-    const payload = buildServerFilterPayload(sampleLayer, g, f)
-    expect(payload).toMatchObject({
-      brazilField: 'c7',
-      distance: { lat: 4.7, lon: -60.7, km: 500 },
-      mode: 'and',
-    })
-    expect(payload?.rules).toHaveLength(2)
+  describe('server filter payload', () => {
+    const remote = (id: string): Layer => ({ ...sampleLayer, id, rows: [], remote: { rowCount: 10, bounds: null } })
+    const A = remote('a'), B = remote('b'), C = remote('c')
+    const prox = (km: number | null) => ({ ...defaultGlobalFilter(), proximityKm: km })
 
-    const multi = buildServerFilterPayload(sampleLayer, {
-      ...defaultGlobalFilter(),
-      circles: [
-        { id: 'c1', lat: 4.7, lon: -60.7, km: 200, label: 'A' },
-        { id: 'c2', lat: -20, lon: -50, km: 300, label: 'B' },
-      ],
+    it('carries the region and the layer rules', () => {
+      const g = { ...defaultGlobalFilter(), country: 'BR' }
+      const f = { ...defaultLayerFilter(), minerals: ['Olivine'], similarityPreset: 'high_chem_temp' }
+      const payload = buildServerFilterPayload(sampleLayer, g, f)
+      expect(payload).toMatchObject({ brazilField: 'c7', mode: 'and' })
+      expect(payload?.rules).toHaveLength(2)
+      expect(payload?.near).toBeUndefined()
     })
-    expect(multi?.distances).toEqual([
-      { lat: 4.7, lon: -60.7, km: 200 },
-      { lat: -20, lon: -50, km: 300 },
-    ])
-    expect(multi?.distance).toBeUndefined()
+
+    it('is null with no filters at all', () => {
+      expect(buildServerFilterPayload(A, defaultGlobalFilter())).toBeNull()
+    })
+
+    it('adds proximity against each other layer, using that layer’s own filters', () => {
+      const bFilter = { ...defaultLayerFilter(), minerals: ['Olivine'] }
+      const payload = buildServerFilterPayload(A, prox(5), undefined, [{ layer: B, filter: bFilter }, { layer: C }])
+      expect(payload?.near?.km).toBe(5)
+      expect(payload?.near?.layers.map(l => l.layerId)).toEqual(['b', 'c'])
+      expect(payload?.near?.layers[0]!.filter.rules).toHaveLength(1)
+      expect(payload?.near?.layers[1]!.filter).toEqual({})
+    })
+
+    it('applies the global region to the other layers as well', () => {
+      const g = { ...prox(5), continent: 'south-america' }
+      const payload = buildServerFilterPayload(A, g, undefined, [{ layer: B }])
+      expect(payload?.boxes).toBeTruthy()
+      expect(payload?.near?.layers[0]!.filter.boxes).toEqual(payload?.boxes)
+    })
+
+    it('has no proximity without peers or without a radius', () => {
+      expect(buildServerFilterPayload(A, prox(5), undefined, [])).toBeNull()
+      expect(buildServerFilterPayload(A, prox(null), undefined, [{ layer: B }])).toBeNull()
+      expect(buildServerFilterPayload(A, prox(0), undefined, [{ layer: B }])).toBeNull()
+    })
   })
 })

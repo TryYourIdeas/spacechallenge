@@ -11,6 +11,14 @@ How to use Layer Explorer in the browser. Start the application first; see
   and any load error.
 - **Point details**: shows the fields of the selected point.
 
+## Keep only points that are close to another layer
+
+In **Global Filters**, type a distance in **Proximity between layers** (or use
+the slider). Each visible layer then shows only points that have a point of every
+other visible layer within that many km; the filters you set on each layer decide
+which points count. The text under the field tells you if it can apply (it needs
+two visible layers). Click **×** to turn it off, or **Clear all**.
+
 ## Show and hide layers
 
 Three built-in layers ship with the app: launch sites, ground stations and

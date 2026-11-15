@@ -141,6 +141,11 @@ Design properties (AGENTS.md: idempotent, replay-safe, durable):
 
 ## 5a. Viewport clustering
 
+Cross-layer proximity: the `filter` query parameter may carry `near: { km, layers:
+[{ layerId, filter }] }` (km in (0, 20000], at most 50 layers, UUID ids, nested
+filters without `near`). The API turns it into one `EXISTS`/`ST_DWithin` per other
+layer (see `backend/services/database/SCHEMA.md`); the client sends it for each
+visible server layer, listing the other visible server layers and their filters.
 Large layers are never sent to the browser whole. `layer_points.geom` (PostGIS
 point, generated from latitude/longitude, GiST index on `(layer_id, geom)`)
 answers viewport queries; `/clusters` filters with `&&` and groups with

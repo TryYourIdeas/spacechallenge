@@ -2,7 +2,6 @@
 import L from 'leaflet'
 import type { ClusterItem, ClusterResponse, GlobalFilter, LatLngBoundsTuple, Layer, LayerFilter, LayerRow, PointSummary, SelectedPoint } from '~/types/layers'
 import {
-  activeCircles,
   buildServerFilterPayload,
   CONTINENTS,
   COUNTRIES,
@@ -10,6 +9,7 @@ import {
   countLayerFilters,
   filterLayerRows,
   hasActiveFilters,
+  type ProximityPeer,
   type ServerFilterPayload,
 } from '~/utils/filters'
 import { clusterSize, viewportBbox } from '~/utils/viewport'
@@ -20,10 +20,6 @@ const props = defineProps<{
   selected: SelectedPoint | null
   globalFilter: GlobalFilter
   layerFilters: Record<string, LayerFilter>
-  pickingOrigin: boolean
-  addingCircle?: boolean
-  activeCircleId?: string | null
-  suppressAutoFit?: boolean
   /** Grid-clustered points of a server layer in a viewport. */
   fetchClusters: (id: string, bbox: string, zoom: number, signal: AbortSignal, filter?: ServerFilterPayload | null) => Promise<ClusterResponse>
   /** Individual points in a small box, for clusters that cannot be split by zooming. */
@@ -31,8 +27,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   select: [point: SelectedPoint, viaKeyboard: boolean]
-  'pick-origin': [lat: number, lon: number]
-  'select-circle': [id: string]
   'remote-counts': [counts: Record<string, number>]
 }>()
 
@@ -41,8 +35,6 @@ const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFracti
 
 const el = ref<HTMLElement>()
 let map: L.Map | undefined
-let radiusCircles: L.Circle[] = []
-let radiusDots: L.CircleMarker[] = []
 const groups = new Map<string, L.LayerGroup>()
 const markers = new Map<string, { marker: L.Marker; layer: Layer }>()
 const remoteKeys = new Map<string, string[]>()
@@ -58,6 +50,21 @@ const anyFilterActive = computed(() =>
   countGlobalFilters(props.globalFilter) > 0 ||
   Object.values(props.layerFilters).some(f => countLayerFilters(f) > 0),
 )
+
+/** True when proximity is set and at least two server layers are visible, so it can filter. */
+const proximityPeers = computed(() => {
+  const km = props.globalFilter.proximityKm
+  return km !== null && km > 0 && props.layers.filter(l => l.remote && props.visible.has(l.id)).length > 1
+})
+
+/** The OTHER visible server layers a layer's points must be near (empty when proximity is off). */
+function peersOf(layer: Layer): ProximityPeer[] {
+  const km = props.globalFilter.proximityKm
+  if (km === null || km <= 0) return []
+  return props.layers
+    .filter(l => l.remote && l.id !== layer.id && props.visible.has(l.id))
+    .map(l => ({ layer: l, filter: props.layerFilters[l.id] }))
+}
 
 const visibleFilteredSummary = computed(() => {
   if (!anyFilterActive.value) return ''
@@ -75,12 +82,7 @@ const visibleFilteredSummary = computed(() => {
     const c = CONTINENTS.find(x => x.id === props.globalFilter.continent)
     if (c) parts.push(c.label)
   }
-  const circles = activeCircles(props.globalFilter)
-  if (circles.length === 1) {
-    parts.push(`Radius ≤ ${circles[0]!.km} km`)
-  } else if (circles.length > 1) {
-    parts.push(`${circles.length} circles (${circles.map(c => c.km.toLocaleString('en-US')).join(' + ')} km)`)
-  }
+  if (proximityPeers.value) parts.push(`Within ${props.globalFilter.proximityKm!.toLocaleString('en-US')} km across layers`)
   return parts.join(' • ')
 })
 
@@ -132,60 +134,6 @@ function rebuildStaticLayers() {
     if (!layer.remote) build(layer)
   }
   highlight()
-}
-
-function syncRadiusOverlay() {
-  if (!map) return
-  for (const c of radiusCircles) c.remove()
-  for (const d of radiusDots) d.remove()
-  radiusCircles = []
-  radiusDots = []
-  const list = activeCircles(props.globalFilter)
-  const selectedId = props.activeCircleId && list.some(c => c.id === props.activeCircleId)
-    ? props.activeCircleId
-    : list[list.length - 1]?.id
-
-  list.forEach((circle, idx) => {
-    const isSelected = circle.id === selectedId
-    const color = isSelected ? '#00e5ff' : '#b79cff'
-    const layer = L.circle([circle.lat, circle.lon], {
-      radius: circle.km * 1000,
-      color,
-      weight: isSelected ? 3 : 2,
-      dashArray: isSelected ? undefined : '8 5',
-      fillColor: color,
-      fillOpacity: isSelected ? 0.14 : 0.08,
-      interactive: !props.pickingOrigin,
-    }).addTo(map!)
-    const badge = isSelected
-      ? `● Circle ${idx + 1} · ${circle.km.toLocaleString('en-US')} km (Selected)`
-      : `○ Circle ${idx + 1} · ${circle.km.toLocaleString('en-US')} km (Click to select)`
-    const showPermanentTooltip = isSelected || list.length <= 10
-    layer.bindTooltip(badge, {
-      permanent: showPermanentTooltip,
-      direction: 'top',
-      offset: [0, -8],
-      className: isSelected ? 'circle-tag circle-tag-selected' : 'circle-tag',
-    })
-    layer.on('click', () => {
-      if (!props.pickingOrigin) emit('select-circle', circle.id)
-    })
-
-    const dot = L.circleMarker([circle.lat, circle.lon], {
-      radius: isSelected ? 6 : 5,
-      color: '#ffffff',
-      weight: 2,
-      fillColor: color,
-      fillOpacity: 1,
-      interactive: !props.pickingOrigin,
-    }).addTo(map!)
-    dot.on('click', () => {
-      if (!props.pickingOrigin) emit('select-circle', circle.id)
-    })
-
-    radiusCircles.push(layer)
-    radiusDots.push(dot)
-  })
 }
 
 function sync() {
@@ -260,7 +208,7 @@ async function listCluster(layer: Layer, item: ClusterItem, bounds: L.LatLngBoun
   }
   note('Loading points…', 'status')
   try {
-    const filterPayload = buildServerFilterPayload(layer, props.globalFilter, props.layerFilters[layer.id])
+    const filterPayload = buildServerFilterPayload(layer, props.globalFilter, props.layerFilters[layer.id], peersOf(layer))
     const { points, truncated } = await props.fetchPoints(
       layer.id, viewportBbox({ west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() }),
       new AbortController().signal, filterPayload)
@@ -326,7 +274,7 @@ async function refreshRemote() {
   let truncated = false
   await Promise.all(targets.map(async (layer) => {
     try {
-      const payload = buildServerFilterPayload(layer, props.globalFilter, props.layerFilters[layer.id])
+      const payload = buildServerFilterPayload(layer, props.globalFilter, props.layerFilters[layer.id], peersOf(layer))
       const res = await props.fetchClusters(layer.id, bbox, zoom, ctl.signal, payload)
       if (ctl.signal.aborted) return
       renderClusters(layer, res)
@@ -369,12 +317,6 @@ function fit() {
 
 function fitFiltered() {
   if (!map) return
-  if (radiusCircles.length > 0) {
-    const combined = radiusCircles[0]!.getBounds()
-    for (let i = 1; i < radiusCircles.length; i++) combined.extend(radiusCircles[i]!.getBounds())
-    map.fitBounds(combined, { padding: [40, 40], maxZoom: 8 })
-    return
-  }
   const pts: L.LatLngTuple[] = []
   for (const l of props.layers) {
     if (!props.visible.has(l.id)) continue
@@ -401,30 +343,7 @@ function fitFiltered() {
   if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 7 })
 }
 
-function getMapCenter(): { lat: number; lon: number } | null {
-  if (!map) return null
-  const c = map.getCenter()
-  return { lat: c.lat, lon: c.lng }
-}
-
-function getVisibleLayerPoints(layerId: string): Array<{ id: string; lat: number; lon: number; label: string }> {
-  const out: Array<{ id: string; lat: number; lon: number; label: string }> = []
-  const prefix = `${layerId}\u0000`
-  for (const [k, entry] of markers) {
-    if (!k.startsWith(prefix)) continue
-    const id = k.slice(prefix.length)
-    const ll = entry.marker.getLatLng()
-    const title = entry.marker.options.title ?? id
-    const label = title.startsWith(`${entry.layer.label}: `)
-      ? title.slice(entry.layer.label.length + 2)
-      : title
-    out.push({ id, lat: ll.lat, lon: ll.lng, label })
-    if (out.length >= 200) break
-  }
-  return out
-}
-
-defineExpose({ fitFiltered, getMapCenter, getVisibleLayerPoints })
+defineExpose({ fitFiltered })
 
 let lastActive: { marker: L.Marker; layer: Layer } | undefined
 function highlight() {
@@ -444,12 +363,7 @@ onMounted(() => {
     maxZoom: MAX_ZOOM, className: 'basemap-dark',
   }).addTo(map)
   map.on('moveend', scheduleRefresh)
-  map.on('click', (e: L.LeafletMouseEvent) => {
-    if (props.pickingOrigin) {
-      emit('pick-origin', e.latlng.lat, e.latlng.lng)
-    }
-  })
-  sync(); syncRadiusOverlay(); fit(); scheduleRefresh()
+  sync(); fit(); scheduleRefresh()
 })
 onBeforeUnmount(() => {
   clearTimeout(refreshTimer)
@@ -463,12 +377,11 @@ watch(() => props.layers, () => { sync(); fit(); highlight(); scheduleRefresh() 
 watch(() => props.visible, () => { sync(); fit(); scheduleRefresh() })
 watch(() => props.selected, highlight)
 watch(
-  [() => props.globalFilter, () => props.layerFilters, () => props.activeCircleId, () => props.pickingOrigin],
+  [() => props.globalFilter, () => props.layerFilters],
   ([gf, lf], [prevGf, prevLf]) => {
-    syncRadiusOverlay()
     if (gf !== prevGf || lf !== prevLf) {
       rebuildStaticLayers()
-      if (props.globalFilter.autoFit && !props.suppressAutoFit) pendingFilterFit = true
+      if (props.globalFilter.autoFit) pendingFilterFit = true
       scheduleRefresh()
     }
   },
@@ -477,13 +390,10 @@ watch(
 </script>
 
 <template>
-  <div class="map-wrap" :class="{ 'picking-origin': pickingOrigin }">
+  <div class="map-wrap">
     <div ref="el" class="map" role="region" aria-label="Map of layer points. Markers are keyboard focusable; press Enter to open a point or zoom into a cluster." />
     <div class="map-status" aria-live="polite">
-      <p v-if="pickingOrigin" class="chipnote active-filter">
-        ⊕ {{ addingCircle ? 'Click anywhere on the map to add another radius circle.' : 'Click anywhere on the map to set the radius origin in km.' }}
-      </p>
-      <p v-else-if="view.loading" class="chipnote">Loading points in view…</p>
+      <p v-if="view.loading" class="chipnote">Loading points in view…</p>
       <p v-else-if="view.error" class="chipnote err" role="alert">
         Could not load points. {{ view.error }}
         <button type="button" @click="scheduleRefresh">Retry</button>
@@ -499,7 +409,6 @@ watch(
 
 <style>
 .map-wrap { position: relative; width: 100%; height: 100%; min-height: 320px; }
-.map-wrap.picking-origin .leaflet-container { cursor: crosshair; }
 .map { width: 100%; height: 100%; min-height: 320px; background: var(--color-bg-deep-space); }
 .map-status { position: absolute; left: 50%; top: 0.75rem; transform: translateX(-50%); z-index: 1000; max-width: calc(100% - 6rem); }
 .chipnote { margin: 0; padding: 0.4rem 0.85rem; border-radius: 999px; background: var(--color-surface-raised); border: 1px solid var(--color-border); color: var(--color-text-primary); font-size: 0.8125rem; display: inline-flex; align-items: center; gap: 0.5rem; }
@@ -541,7 +450,4 @@ watch(
 .pt-active { transform: scale(1.35); box-shadow: 0 0 0 3px var(--color-accent-arctic-cyan); }
 .pt-diamond.pt-active { transform: rotate(45deg) scale(1.2); }
 .pt-triangle.pt-active { box-shadow: none; transform: scale(1.35); filter: drop-shadow(0 0 3px var(--color-accent-arctic-cyan)) drop-shadow(0 0 1px #fff); }
-.circle-tag { background: rgb(5 7 13 / 92%); border: 1px solid #7851a9; border-radius: 999px; color: #e2e8f0; font-family: var(--font-sans); font-size: 0.7rem; padding: 0.15rem 0.55rem; box-shadow: 0 2px 8px rgb(0 0 0 / 50%); white-space: nowrap; }
-.circle-tag::before { display: none; }
-.circle-tag-selected { border-color: var(--color-accent-arctic-cyan); color: var(--color-accent-arctic-cyan); font-weight: 600; }
 </style>

@@ -1,4 +1,4 @@
-import type { GlobalFilter, LatLngBoundsTuple, Layer, LayerField, LayerFilter, LayerRow, NumericRangeFilter, RadiusCircle } from '../types/layers'
+import type { GlobalFilter, LatLngBoundsTuple, Layer, LayerField, LayerFilter, LayerRow, NumericRangeFilter } from '../types/layers'
 
 export interface GeoEnvelope {
   west: number
@@ -111,47 +111,12 @@ export function countriesForContinent(continentId: string): CountryDef[] {
   return COUNTRIES.filter(c => c.continent === continentId)
 }
 
-export function regionCenter(continentId: string, countryId: string): { lat: number; lon: number; label: string } | null {
-  if (countryId) {
-    const c = COUNTRIES.find(x => x.id === countryId)
-    if (c) return { lat: c.center[0], lon: c.center[1], label: `${c.label} Center` }
-  }
-  if (continentId) {
-    const cont = CONTINENTS.find(x => x.id === continentId)
-    if (cont) return { lat: cont.center[0], lon: cont.center[1], label: `${cont.label} Center` }
-  }
-  return null
-}
-
 export function defaultGlobalFilter(): GlobalFilter {
-  return {
-    continent: '',
-    country: '',
-    distanceKm: null,
-    originLat: null,
-    originLon: null,
-    originLabel: '',
-    circles: [],
-    syncRegionCircle: true,
-    autoFit: true,
-  }
+  return { continent: '', country: '', proximityKm: null, autoFit: true }
 }
 
-export function activeCircles(g: GlobalFilter): RadiusCircle[] {
-  if (g.circles && g.circles.length > 0) {
-    return g.circles.filter(c => c.km > 0 && Number.isFinite(c.lat) && Number.isFinite(c.lon))
-  }
-  if (g.distanceKm !== null && g.distanceKm > 0 && g.originLat !== null && g.originLon !== null) {
-    return [{
-      id: 'primary',
-      lat: g.originLat,
-      lon: g.originLon,
-      km: g.distanceKm,
-      label: g.originLabel || `${g.originLat.toFixed(2)}°, ${g.originLon.toFixed(2)}°`,
-    }]
-  }
-  return []
-}
+/** Largest accepted proximity radius in km (the server enforces the same bound). */
+export const MAX_PROXIMITY_KM = 20000
 
 export function defaultLayerFilter(): LayerFilter {
   return {
@@ -186,7 +151,7 @@ export function countGlobalFilters(g: GlobalFilter): number {
   let n = 0
   if (g.continent) n++
   if (g.country) n++
-  n += activeCircles(g).length
+  if (g.proximityKm !== null && g.proximityKm > 0) n++
   return n
 }
 
@@ -209,18 +174,6 @@ export function countLayerFilters(f?: LayerFilter): number {
 
 export function hasActiveFilters(g: GlobalFilter, f?: LayerFilter): boolean {
   return countGlobalFilters(g) > 0 || countLayerFilters(f) > 0
-}
-
-/** Great-circle distance between two WGS84 coordinates in kilometers. */
-export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371
-  const toRad = (deg: number) => (deg * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLon = toRad(lon2 - lon1)
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)))
 }
 
 export function inGeoBoxes(lat: number, lon: number, boxes: GeoEnvelope[]): boolean {
@@ -367,11 +320,6 @@ export function matchesGlobalFilter(row: LayerRow, fields: LayerField[], g: Glob
       }
     }
   }
-  const circles = activeCircles(g)
-  if (circles.length > 0) {
-    const insideAny = circles.some(c => haversineKm(row.latitude, row.longitude, c.lat, c.lon) <= c.km)
-    if (!insideAny) return false
-  }
   return true
 }
 
@@ -498,19 +446,43 @@ export interface ServerFilterRule {
   hideMissing?: boolean
 }
 
-export interface ServerFilterPayload {
+/** A layer's own filters as the server understands them (no proximity). */
+export interface ServerLayerFilterPayload {
   boxes?: GeoEnvelope[]
-  distance?: { lat: number; lon: number; km: number }
-  distances?: { lat: number; lon: number; km: number }[]
   brazilField?: string
   mode?: 'and' | 'or'
   rules?: ServerFilterRule[]
 }
 
-export function buildServerFilterPayload(layer: Layer, g: GlobalFilter, f?: LayerFilter): ServerFilterPayload | null {
-  if (!hasActiveFilters(g, f)) return null
+export interface ServerFilterPayload extends ServerLayerFilterPayload {
+  /** Every listed layer must have a point passing its own `filter` within `km` of the point. */
+  near?: { km: number; layers: { layerId: string; filter: ServerLayerFilterPayload }[] }
+}
+
+/** Another server layer taking part in the proximity filter, with its own per-layer filter. */
+export interface ProximityPeer { layer: Layer; filter?: LayerFilter }
+
+/**
+ * Filter payload for one server layer. `peers` are the OTHER visible server layers: when the
+ * global proximity is set and there is at least one peer, the layer keeps only points that
+ * have a match, within the radius, in each peer (that peer's own filters apply to the match).
+ */
+export function buildServerFilterPayload(
+  layer: Layer, g: GlobalFilter, f?: LayerFilter, peers: ProximityPeer[] = [],
+): ServerFilterPayload | null {
+  const payload: ServerFilterPayload = buildLayerFilterPayload(layer, g, f) ?? {}
+  if (g.proximityKm !== null && g.proximityKm > 0 && peers.length > 0) {
+    payload.near = {
+      km: g.proximityKm,
+      layers: peers.map(p => ({ layerId: p.layer.id, filter: buildLayerFilterPayload(p.layer, g, p.filter) ?? {} })),
+    }
+  }
+  return Object.keys(payload).length > 0 ? payload : null
+}
+
+function buildLayerFilterPayload(layer: Layer, g: GlobalFilter, f?: LayerFilter): ServerLayerFilterPayload | null {
   const caps = detectLayerCapabilities(layer)
-  const payload: ServerFilterPayload = {}
+  const payload: ServerLayerFilterPayload = {}
 
   if (g.country) {
     const country = COUNTRIES.find(c => c.id === g.country)
@@ -521,13 +493,6 @@ export function buildServerFilterPayload(layer: Layer, g: GlobalFilter, f?: Laye
   } else if (g.continent) {
     const cont = CONTINENTS.find(c => c.id === g.continent)
     if (cont) payload.boxes = cont.boxes
-  }
-
-  const circles = activeCircles(g)
-  if (circles.length === 1) {
-    payload.distance = { lat: circles[0]!.lat, lon: circles[0]!.lon, km: circles[0]!.km }
-  } else if (circles.length > 1) {
-    payload.distances = circles.map(c => ({ lat: c.lat, lon: c.lon, km: c.km }))
   }
 
   if (f && countLayerFilters(f) > 0) {

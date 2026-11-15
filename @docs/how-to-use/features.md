@@ -16,6 +16,24 @@ What Layer Explorer does today. Keep this list in step with the code.
   with retry.
 - Clicking a point opens a closeable dialog on the right of the map with all its fields (close with the × button, Close, or Esc).
 
+## Cross-layer proximity filter
+
+- Global filter "Proximity between layers" (km, 0.1 to 20,000; empty = off). With it
+  set, every visible server (imported) layer shows only the points that have a
+  point of **every other visible layer** within that distance (great-circle, on the
+  WGS84 spheroid). Each layer's own filters and the continent/country filter decide
+  which points of the other layers count as a match, so with layer 1 filtered to 10
+  items, layer 2 filtered to 20 and a 5 km radius, you see the layer 1 items that
+  are within 5 km of one of those 20 (and the layer 2 items near one of those 10).
+- Needs at least two visible server layers; with one it removes nothing. A visible
+  layer with no matching points leaves the others empty. Static built-in layers do
+  not take part.
+- Layer counts and the map summary show the filtered totals. The old map-origin
+  "Radius Circles" were removed; clicking a point no longer draws circles.
+- API: `?filter=` on `/api/layers/:id/clusters` and `/points` accepts
+  `near: { km, layers: [{ layerId, filter }] }`; evaluated in PostgreSQL with
+  `ST_DWithin` on geography (index `layer_points_geog_idx`).
+
 ## Server-side layers from CSV
 
 - Imported outside the app by a local script (`scripts/import_csv.sh <file.csv>`

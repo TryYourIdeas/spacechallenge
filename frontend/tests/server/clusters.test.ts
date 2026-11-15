@@ -44,13 +44,15 @@ describe('parseRowIdx', () => {
   it.each([undefined, '', '-1', '1.5', 'x', '99999999999'])('rejects %s', raw => expect(parseRowIdx(raw)).toBeNull())
 })
 
+const L2 = '22222222-2222-4222-8222-222222222222'
+const L3 = '33333333-3333-4333-8333-333333333333'
+
 describe('parseFilterParam & filterPredicate', () => {
   it('returns undefined when filter is empty and parses valid filter JSON', () => {
     expect(parseFilterParam(undefined)).toBeUndefined()
     expect(parseFilterParam('')).toBeUndefined()
     const valid = JSON.stringify({
       brazilField: 'c18',
-      distance: { lat: 4.7, lon: -60.7, km: 500 },
       mode: 'and',
       rules: [
         { kind: 'text', field: 'c2', values: ['Olivine'], hideMissing: true },
@@ -60,29 +62,58 @@ describe('parseFilterParam & filterPredicate', () => {
     const parsed = parseFilterParam(valid)
     expect(parsed).toBeTruthy()
     const pred = filterPredicate(parsed!, 3)
-    expect(pred.sql).toContain('ST_DWithin')
     expect(pred.sql).toContain('ILIKE')
     expect(pred.params[0]).toBe('c18')
   })
 
-  it('rejects malformed JSON, non-c<N> field keys, or out-of-range coordinates', () => {
+  it('rejects malformed JSON or non-c<N> field keys', () => {
     expect(parseFilterParam('{bad')).toBeNull()
     expect(parseFilterParam(JSON.stringify({ brazilField: 'sql_inject' }))).toBeNull()
-    expect(parseFilterParam(JSON.stringify({ distance: { lat: 95, lon: 0, km: 100 } }))).toBeNull()
-    expect(parseFilterParam(JSON.stringify({ distances: [] }))).toBeNull()
     expect(parseFilterParam(JSON.stringify({ rules: [{ kind: 'range', field: 'bad', min: 1 }] }))).toBeNull()
   })
+})
 
-  it('ORs multiple distance circles in filterPredicate', () => {
-    const parsed = parseFilterParam(JSON.stringify({
-      distances: [
-        { lat: 4.7, lon: -60.7, km: 200 },
-        { lat: 57.35, lon: -6.2, km: 100 },
-      ],
-    }))
-    expect(parsed).toBeTruthy()
+describe('cross-layer proximity (near)', () => {
+  const near = (o: unknown) => parseFilterParam(JSON.stringify({ near: o }))
+
+  it('parses km and the other layers with their own filters', () => {
+    const parsed = near({ km: 5, layers: [
+      { layerId: L2, filter: { rules: [{ kind: 'range', field: 'c1', min: 1, max: 2, hideMissing: true }] } },
+      { layerId: L3 },
+    ] })
+    expect(parsed?.near?.km).toBe(5)
+    expect(parsed?.near?.layers.map(l => l.layerId)).toEqual([L2, L3])
+    expect(parsed?.near?.layers[0]!.filter.rules).toHaveLength(1)
+    expect(parsed?.near?.layers[1]!.filter).toEqual({})
+  })
+
+  it.each([
+    ['zero km', { km: 0, layers: [{ layerId: L2 }] }],
+    ['negative km', { km: -1, layers: [{ layerId: L2 }] }],
+    ['km too large', { km: 20001, layers: [{ layerId: L2 }] }],
+    ['no layers', { km: 5, layers: [] }],
+    ['bad layer id', { km: 5, layers: [{ layerId: "x'; DROP TABLE layers;--" }] }],
+    ['bad nested field key', { km: 5, layers: [{ layerId: L2, filter: { brazilField: 'nope' } }] }],
+    ['not an object', 'x'],
+  ])('rejects %s', (_n, value) => expect(near(value)).toBeNull())
+
+  it('rejects a nested near and more than 50 layers', () => {
+    const ok = near({ km: 5, layers: [{ layerId: L2, filter: { near: { km: 1, layers: [{ layerId: L3 }] } } }] })
+    expect(ok?.near?.layers[0]!.filter).not.toHaveProperty('near')
+    const many = Array.from({ length: 51 }, () => ({ layerId: L2 }))
+    expect(near({ km: 5, layers: many })).toBeNull()
+  })
+
+  it('builds one correlated EXISTS per other layer, numbering nested parameters in order', () => {
+    const parsed = near({ km: 5, layers: [
+      { layerId: L2, filter: { rules: [{ kind: 'range', field: 'c1', min: 1, max: 2, hideMissing: true }] } },
+      { layerId: L3 },
+    ] })
     const pred = filterPredicate(parsed!, 3)
-    expect(pred.sql).toContain(' OR ')
-    expect(pred.params).toEqual([-60.7, 4.7, 200000, -6.2, 57.35, 100000])
+    expect(pred.sql.match(/EXISTS/g)).toHaveLength(2)
+    expect(pred.sql).toContain('o.layer_id = $4::uuid')
+    expect(pred.sql).toContain('ST_DWithin(o.geom::geography, layer_points.geom::geography, $3::float8 * 1000)')
+    expect(pred.sql).toContain('o.layer_id = $8::uuid')
+    expect(pred.params).toEqual([5, L2, 'c1', 1, 2, L3])
   })
 })

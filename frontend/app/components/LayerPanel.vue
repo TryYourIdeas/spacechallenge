@@ -15,6 +15,7 @@ import {
   hasActiveFilters,
   LUNAR_GROUP_LABELS,
   LUNAR_GROUPS,
+  MAX_PROXIMITY_KM,
   SIMILARITY_PRESETS,
 } from '~/utils/filters'
 
@@ -26,10 +27,6 @@ const props = defineProps<{
   globalFilter: GlobalFilter
   layerFilters: Record<string, LayerFilter>
   remoteCounts: Record<string, number>
-  pickingOrigin: boolean
-  addingCircle: boolean
-  activeCircleId: string | null
-  hasSelectedPoint: boolean
 }>()
 
 const emit = defineEmits<{
@@ -38,11 +35,6 @@ const emit = defineEmits<{
   'update:globalFilter': [filter: GlobalFilter]
   'update:layerFilter': [id: string, filter: LayerFilter]
   'reset-all-filters': []
-  'use-selected-origin': []
-  'use-map-center': []
-  'toggle-pick-origin': [asNew?: boolean]
-  'select-circle': [id: string]
-  'remove-circle': [id: string]
   'fit-filtered': []
 }>()
 
@@ -55,14 +47,12 @@ const globalActiveCount = computed(() => countGlobalFilters(props.globalFilter))
 const anyFilterActive = computed(() =>
   globalActiveCount.value > 0 || Object.values(props.layerFilters).some(f => countLayerFilters(f) > 0),
 )
-const selectedCircleIndex = computed(() => {
-  const list = props.globalFilter.circles
-  if (list.length === 0) return -1
-  const idx = props.activeCircleId ? list.findIndex(c => c.id === props.activeCircleId) : list.length - 1
-  return idx >= 0 ? idx : list.length - 1
-})
-const selectedCircle = computed(() =>
-  selectedCircleIndex.value >= 0 ? props.globalFilter.circles[selectedCircleIndex.value] : undefined,
+/** Server layers that are visible: proximity compares points between these. */
+const proximityLayerCount = computed(() =>
+  props.metas.filter((m) => {
+    const l = readyLayer(m.id)
+    return !!l?.remote && props.visible.has(m.id)
+  }).length,
 )
 
 function updateGlobal(patch: Partial<GlobalFilter>) {
@@ -74,14 +64,14 @@ function updateGlobal(patch: Partial<GlobalFilter>) {
   emit('update:globalFilter', next)
 }
 
-function onDistanceInput(raw: string) {
+function onProximityInput(raw: string) {
   const trimmed = raw.trim()
   if (trimmed === '') {
-    updateGlobal({ distanceKm: null })
+    updateGlobal({ proximityKm: null })
     return
   }
   const n = Number(trimmed)
-  if (Number.isFinite(n) && n > 0) updateGlobal({ distanceKm: Math.min(20000, Math.round(n)) })
+  if (Number.isFinite(n) && n > 0) updateGlobal({ proximityKm: Math.min(MAX_PROXIMITY_KM, Math.round(n * 10) / 10) })
 }
 
 function layerFilterFor(id: string): LayerFilter {
@@ -215,146 +205,62 @@ function filteredPointCount(layer: Layer): number | null {
 
       <div class="gf-distance">
         <div class="gf-distance-head">
-          <label for="gf-dist-num">Radius Circles (Union · ANY)</label>
-          <span class="origin-tag">{{ globalFilter.circles.length }} / 200</span>
+          <label for="gf-prox-num">Proximity between layers</label>
         </div>
-
-        <div v-if="globalFilter.circles.length > 0" class="circle-cards" role="list" aria-label="Active radius circles">
-          <div
-            v-for="(c, idx) in globalFilter.circles"
-            :key="c.id"
-            role="listitem"
-            class="circle-card"
-            :class="{ selected: idx === selectedCircleIndex }"
+        <div class="gf-distance-controls">
+          <input
+            type="range"
+            min="1"
+            max="500"
+            step="1"
+            aria-label="Proximity radius slider in km"
+            :value="Math.min(globalFilter.proximityKm ?? 5, 500)"
+            @input="onProximityInput(($event.target as HTMLInputElement).value)"
           >
-            <button type="button" class="circle-card-main" @click="emit('select-circle', c.id)">
-              <span class="circle-dot" :class="{ selected: idx === selectedCircleIndex }" aria-hidden="true">{{ idx === selectedCircleIndex ? '●' : '○' }}</span>
-              <span class="circle-meta">
-                <span class="circle-title">Circle {{ idx + 1 }} · {{ c.label }}</span>
-                <span class="circle-coords">{{ c.lat.toFixed(2) }}°, {{ c.lon.toFixed(2) }}° · {{ idx === selectedCircleIndex ? 'Selected' : 'Click to edit' }}</span>
-              </span>
-              <span class="circle-km-badge">{{ c.km }} km</span>
-            </button>
-            <button
-              type="button"
-              class="circle-card-del"
-              :aria-label="`Remove Circle ${idx + 1}`"
-              @click="emit('remove-circle', c.id)"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-
-        <div class="circle-editor">
-          <div class="circle-editor-head">
-            <span v-if="selectedCircle" class="editor-label">
-              Editing: Circle {{ selectedCircleIndex + 1 }} ({{ selectedCircle.label }})
-            </span>
-            <span v-else class="muted-xs">Move the slider or pick an origin to add Circle 1</span>
-          </div>
-
-          <div class="gf-distance-controls">
+          <div class="num-unit">
             <input
-              type="range"
-              min="10"
-              max="5000"
-              step="10"
-              aria-label="Maximum distance slider in km"
-              :value="globalFilter.distanceKm ?? 500"
-              @input="onDistanceInput(($event.target as HTMLInputElement).value)"
+              id="gf-prox-num"
+              type="number"
+              min="0.1"
+              :max="MAX_PROXIMITY_KM"
+              step="any"
+              placeholder="Off"
+              aria-describedby="gf-prox-help"
+              :value="globalFilter.proximityKm ?? ''"
+              @input="onProximityInput(($event.target as HTMLInputElement).value)"
             >
-            <div class="num-unit">
-              <input
-                id="gf-dist-num"
-                type="number"
-                min="10"
-                max="20000"
-                step="10"
-                placeholder="Off"
-                :value="globalFilter.distanceKm ?? ''"
-                @input="onDistanceInput(($event.target as HTMLInputElement).value)"
-              >
-              <span>km</span>
-            </div>
-            <button
-              v-if="globalFilter.distanceKm !== null"
-              type="button"
-              class="mini-btn"
-              aria-label="Clear all radius circles"
-              @click="updateGlobal({ distanceKm: null, originLat: null, originLon: null, originLabel: '', circles: [] })"
-            >
-              ×
-            </button>
+            <span>km</span>
           </div>
-
-          <div class="gf-origin-row">
-            <button
-              type="button"
-              class="pill-btn"
-              :disabled="!hasSelectedPoint"
-              @click="emit('use-selected-origin')"
-            >
-              ● Selected pt
-            </button>
-            <button
-              type="button"
-              class="pill-btn"
-              :class="{ active: pickingOrigin && !addingCircle }"
-              :aria-pressed="pickingOrigin && !addingCircle"
-              @click="emit('toggle-pick-origin', false)"
-            >
-              ⊕ {{ pickingOrigin && !addingCircle ? 'Click on map…' : (globalFilter.circles.length > 0 ? 'Move on map' : 'Pick on map') }}
-            </button>
-            <button
-              v-if="globalFilter.circles.length > 0 && globalFilter.circles.length < 200"
-              type="button"
-              class="pill-btn add-circle-btn"
-              :class="{ active: pickingOrigin && addingCircle }"
-              :aria-pressed="pickingOrigin && addingCircle"
-              @click="emit('toggle-pick-origin', true)"
-            >
-              + {{ pickingOrigin && addingCircle ? 'Click map…' : 'Add circle' }}
-            </button>
-            <button
-              type="button"
-              class="pill-btn"
-              @click="emit('use-map-center')"
-            >
-              ⌖ Map center
-            </button>
-            <label class="autofit-check">
-              <input
-                type="checkbox"
-                :checked="globalFilter.autoFit"
-                @change="updateGlobal({ autoFit: ($event.target as HTMLInputElement).checked })"
-              >
-              <span>Auto-fit</span>
-            </label>
-          </div>
+          <button
+            v-if="globalFilter.proximityKm !== null"
+            type="button"
+            class="mini-btn"
+            aria-label="Turn proximity filter off"
+            @click="updateGlobal({ proximityKm: null })"
+          >
+            ×
+          </button>
         </div>
-
-        <div class="origin-mode-box">
-          <span class="origin-mode-title">ACTIVE CIRCLE ORIGIN MODE</span>
-          <div class="seg-group full" role="group" aria-label="Active circle origin mode">
-            <button
-              type="button"
-              class="seg-btn"
-              :class="{ active: globalFilter.syncRegionCircle !== false }"
-              @click="updateGlobal({ syncRegionCircle: true })"
-            >
-              {{ globalFilter.syncRegionCircle !== false ? '✓ ' : '' }}Sync with Region Filter
-            </button>
-            <button
-              type="button"
-              class="seg-btn"
-              :class="{ active: globalFilter.syncRegionCircle === false }"
-              @click="updateGlobal({ syncRegionCircle: false })"
-            >
-              {{ globalFilter.syncRegionCircle === false ? '✓ ' : '' }}Free Map Coordinates
-            </button>
-          </div>
-        </div>
+        <p id="gf-prox-help" class="muted-xs" role="status">
+          <template v-if="globalFilter.proximityKm === null">
+            Keep only points that have a point of every other visible layer within this distance.
+          </template>
+          <template v-else-if="proximityLayerCount < 2">
+            Needs at least two visible server layers; no points are removed until then.
+          </template>
+          <template v-else>
+            Each layer shows only points within {{ globalFilter.proximityKm.toLocaleString('en-US') }} km of a
+            filtered point of every other visible layer.
+          </template>
+        </p>
+        <label class="autofit-check">
+          <input
+            type="checkbox"
+            :checked="globalFilter.autoFit"
+            @change="updateGlobal({ autoFit: ($event.target as HTMLInputElement).checked })"
+          >
+          <span>Auto-fit map to filtered points</span>
+        </label>
       </div>
     </fieldset>
 
@@ -728,7 +634,6 @@ select, .text-filter-input {
 select:focus-visible, .text-filter-input:focus-visible { border-color: var(--color-accent-arctic-cyan); }
 .gf-distance { margin-top: 0.65rem; display: grid; gap: 0.4rem; }
 .gf-distance-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
-.origin-tag { font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-accent-arctic-cyan); }
 .muted-xs { font-size: 0.72rem; color: var(--color-text-secondary); }
 .gf-distance-controls { display: flex; align-items: center; gap: 0.5rem; }
 .gf-distance-controls input[type="range"], .range-row input[type="range"] { flex: 1; accent-color: var(--color-accent-arctic-cyan); }
@@ -736,29 +641,9 @@ select:focus-visible, .text-filter-input:focus-visible { border-color: var(--col
 .num-unit input { width: 4.2rem; background: transparent; border: 0; color: var(--color-text-primary); font-family: var(--font-mono); font-size: 0.8125rem; }
 .num-unit span { font-size: 0.75rem; color: var(--color-text-secondary); font-family: var(--font-mono); }
 .mini-btn { padding: 0.1rem 0.45rem; min-height: 28px; }
-.gf-origin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 .pill-btn { font-size: 0.75rem; padding: 0.2rem 0.55rem; min-height: 28px; border-color: var(--color-border); }
 .pill-btn.active { border-color: var(--color-accent-arctic-cyan); color: var(--color-accent-arctic-cyan); }
 .pill-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.add-circle-btn { border-color: var(--color-accent-arctic-cyan); color: var(--color-accent-arctic-cyan); }
-.circle-cards { display: grid; gap: 0.35rem; max-height: 11.5rem; overflow-y: auto; }
-.circle-card { display: flex; align-items: stretch; background: var(--color-bg-deep-space); border: 1px solid var(--color-accent-royal-purple); border-radius: 7px; overflow: hidden; }
-.circle-card.selected { border-color: var(--color-accent-arctic-cyan); background: rgb(0 229 255 / 6%); }
-.circle-card-main { flex: 1; background: transparent; border: 0; padding: 0.35rem 0.5rem; min-height: 40px; display: flex; align-items: center; gap: 0.45rem; text-align: left; }
-.circle-dot { font-size: 0.85rem; color: #b79cff; flex-shrink: 0; }
-.circle-dot.selected { color: var(--color-accent-arctic-cyan); }
-.circle-meta { flex: 1; min-width: 0; display: grid; gap: 0.08rem; }
-.circle-title { font-size: 0.76rem; font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.circle-coords { font-family: var(--font-mono); font-size: 0.68rem; color: var(--color-text-secondary); }
-.circle-km-badge { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; color: #b79cff; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 5px; padding: 0.15rem 0.4rem; flex-shrink: 0; }
-.circle-card.selected .circle-km-badge { color: var(--color-accent-arctic-cyan); border-color: var(--color-accent-arctic-cyan); }
-.circle-card-del { background: transparent; border: 0; border-left: 1px solid var(--color-border); color: var(--color-text-secondary); padding: 0 0.55rem; min-height: 40px; font-size: 0.9rem; }
-.circle-card-del:hover { color: var(--color-danger); }
-.circle-editor { display: grid; gap: 0.4rem; padding: 0.5rem; border-radius: 8px; background: var(--color-bg-deep-space); border: 1px solid var(--color-border); }
-.circle-editor-head { display: flex; align-items: center; justify-content: space-between; }
-.editor-label { font-size: 0.72rem; font-weight: 600; color: var(--color-accent-arctic-cyan); }
-.origin-mode-box { display: grid; gap: 0.3rem; padding: 0.45rem 0.5rem; border-radius: 7px; background: var(--color-bg-deep-space); border: 1px solid var(--color-border); }
-.origin-mode-title { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.04em; color: var(--color-text-secondary); }
 .seg-group.full { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
 .autofit-check, .missing-check { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--color-text-secondary); cursor: pointer; min-height: 26px; }
 .autofit-check input, .missing-check input { width: 14px; height: 14px; accent-color: var(--color-accent-arctic-cyan); }

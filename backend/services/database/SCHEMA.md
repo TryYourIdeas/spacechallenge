@@ -59,8 +59,17 @@ geom)`; viewport queries use `geom && ST_MakeEnvelope(...)` and read only one
 layer's entries. Clustering groups with `ST_SnapToGrid(geom, cell)` per request
 (no stored clusters, nothing to refresh; deleting a layer cascades as before).
 Measured on 120k points: whole-world clustering about 120 ms, a regional viewport
-about 6 ms in the database. Coordinates stay plain doubles in the API; there are no
-geography/distance features yet. No vector columns are involved.
+about 6 ms in the database. Coordinates stay plain doubles in the API. No vector columns are involved.
+
+Cross-layer proximity (migration `0004`): `layer_points_geog_idx` is a GiST index on
+`(layer_id, (geom::geography))`. The API filter `near` becomes one correlated
+`EXISTS (SELECT 1 FROM layer_points o WHERE o.layer_id = $other AND
+ST_DWithin(o.geom::geography, layer_points.geom::geography, km * 1000) AND <other
+layer's own filters>)` per other layer, so distance is metres on the spheroid, the
+antimeridian needs no special case, and each lookup reads only that layer's index
+entries. Nothing is stored or refreshed; deleting a layer removes its entries via
+the existing cascade. Measured on 120k + 3k points: whole-world cluster plus count
+queries 0.2 to 0.8 s.
 
 Import is a single transaction (layer + points + task `done`), so a failed or
 crashed attempt leaves no partial layer. No vector columns are involved.

@@ -58,23 +58,14 @@ export interface ClusterResponse {
   filteredBounds?: LatLngBoundsTuple | null
 }
 
-export interface RadiusCircle {
-  id: string
-  lat: number
-  lon: number
-  km: number
-  label: string
-}
-
 export interface GlobalFilter {
   continent: string
   country: string
-  distanceKm: number | null
-  originLat: number | null
-  originLon: number | null
-  originLabel: string
-  circles: RadiusCircle[]
-  syncRegionCircle?: boolean
+  /**
+   * Cross-layer proximity: when set, a point of a visible layer is kept only if every
+   * other visible layer has a point (passing that layer's filters) within this many km.
+   */
+  proximityKm: number | null
   autoFit: boolean
 }
 
