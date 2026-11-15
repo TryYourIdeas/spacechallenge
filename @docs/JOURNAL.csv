@@ -46,3 +46,4 @@ b - sim, teremos os filtros das camadas pelo tipo de mineral
 })",2026-11-15T10:26:02-03:00,unavailable,39
 Redesign cluster popup,"when several points share the same location the dialog for selecting the points requires better design, see attached image",2026-11-15T09:55:40-03:00,unavailable,unavailable
 "Replace UI/queue CSV import with local import script; remove worker, Redis and import API",go implement,2026-11-15T11:44:04-03:00,unavailable,unavailable
+Remove layer deletion so the app is fully read-only,remove it so the app is fully read-only.,2026-11-15T11:48:46-03:00,unavailable,unavailable

@@ -33,7 +33,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   toggle: [id: string]
   retry: [id: string]
-  remove: [id: string]
   'update:globalFilter': [filter: GlobalFilter]
   'update:layerFilter': [id: string, filter: LayerFilter]
   'reset-all-filters': []
@@ -43,11 +42,9 @@ const emit = defineEmits<{
   'fit-filtered': []
 }>()
 
-const confirming = ref<string | null>(null)
 const expandedLayer = ref<string | null>(null)
 const selectedOxideField = ref<Record<string, string>>({})
 const selectedExtraField = ref<Record<string, string>>({})
-const statusBox = ref<HTMLElement>()
 
 const availableCountries = computed(() => countriesForContinent(props.globalFilter.continent))
 const globalActiveCount = computed(() => countGlobalFilters(props.globalFilter))
@@ -155,13 +152,6 @@ function filteredPointCount(layer: Layer): number | null {
     return props.remoteCounts[layer.id] ?? null
   }
   return filterLayerRows(layer, props.globalFilter, f).length
-}
-
-async function remove(id: string) {
-  confirming.value = null
-  emit('remove', id)
-  await nextTick()
-  statusBox.value?.focus()
 }
 
 </script>
@@ -339,12 +329,6 @@ async function remove(id: string) {
               {{ expandedLayer === m.id ? '▲' : '▾' }}
             </button>
 
-            <template v-if="confirming === m.id">
-              <span class="warn" role="alert">Delete {{ m.label }} permanently?</span>
-              <button type="button" class="danger" @click="remove(m.id)">Delete</button>
-              <button type="button" @click="confirming = null">Cancel</button>
-            </template>
-            <button v-else type="button" :aria-label="`Remove layer ${m.label}`" @click="m.imported ? (confirming = m.id) : remove(m.id)">Remove</button>
           </div>
 
           <!-- PER-LAYER FILTER SUB-PANEL -->
@@ -640,7 +624,7 @@ async function remove(id: string) {
         </li>
       </ul>
 
-      <div ref="statusBox" class="import" tabindex="-1">
+      <div class="import">
         <p v-if="apiError" role="alert" class="error">{{ apiError }}</p>
       </div>
     </fieldset>
@@ -727,7 +711,5 @@ button:hover:not(:disabled) { border-color: var(--color-accent-arctic-cyan); }
 .import { margin-top: 1rem; display: grid; gap: 0.4rem; justify-items: start; }
 .hint { margin: 0; font-size: 0.8125rem; }
 .actions { margin: 0.25rem 0 0 2.1rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
-.warn { font-size: 0.8125rem; color: var(--color-danger); }
-.danger { border-color: var(--color-danger); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 </style>

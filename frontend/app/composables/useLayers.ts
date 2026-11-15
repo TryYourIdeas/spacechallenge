@@ -150,27 +150,8 @@ export function useLayers() {
     }
   }
 
-  /** Imported layers are deleted on the server; built-in ones are only dropped from this session. */
-  async function removeLayer(id: string) {
-    if (metas.value.find(m => m.id === id)?.imported) {
-      try {
-        await api(`/api/layers/${id}`, { method: 'DELETE' })
-      } catch (e) {
-        apiError.value = `Could not remove the layer: ${e instanceof Error ? e.message : 'unknown error'}`
-        return
-      }
-      apiError.value = ''
-    }
-    metas.value = metas.value.filter(m => m.id !== id)
-    const { [id]: _gone, ...rest } = states.value
-    states.value = rest
-    const next = new Set(visible.value)
-    next.delete(id)
-    visible.value = next
-  }
-
   onMounted(load)
   onBeforeUnmount(() => { controller?.abort() })
 
-  return { indexState, indexError, metas, states, visible, toggle, reload: load, retryLayer, apiError, removeLayer, fetchClusters, fetchPoints, fetchPoint }
+  return { indexState, indexError, metas, states, visible, toggle, reload: load, retryLayer, apiError, fetchClusters, fetchPoints, fetchPoint }
 }

@@ -8,7 +8,7 @@ How to use Layer Explorer in the browser. Start the application first; see
 - **Map** (right/main area): a dark world map. Zoom with the `+`/`-` buttons,
   mouse wheel or pinch; drag to pan.
 - **Layer panel**: lists every layer with a checkbox, a status line, and
-  Remove/Delete controls, and any load error.
+  and any load error.
 - **Point details**: shows the fields of the selected point.
 
 ## Show and hide layers
@@ -61,9 +61,10 @@ CSV requirements:
 
 ## Remove a layer
 
-- Built-in layers: **Remove** hides them from the panel for this session.
-- Imported layers: **Remove**, then confirm **Delete**. This permanently deletes
-  the layer and its points. Cancel keeps it.
+The app is read-only, so it has no remove button. Untick a layer to hide it. To
+delete an imported layer for good, remove it in the database
+(`DELETE FROM layers WHERE label = '<name>'`; its points go with it), or import a
+corrected file of the same name to replace it.
 
 ## Keyboard and accessibility
 

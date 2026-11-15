@@ -144,7 +144,7 @@ Limits of serverless hosting:
   Docker `app` once against the same database, or by running `npm run import`.
 - Import data from your machine with the script (below); Vercel serves what is
   in the database.
-- There is no authentication (see below); a public Vercel URL exposes layer deletion. Enable Vercel Deployment Protection.
+- The API is read-only but has no authentication (see below); a public Vercel URL exposes all layer data. Enable Vercel Deployment Protection if the data is private.
 
 ## Importing data
 
@@ -168,4 +168,4 @@ scripts/import_csv.sh path/to/file.csv        # or: cd frontend && npm run impor
 
 ## Known limitation
 
-There is no authentication yet: anyone who can reach the app can delete layers. Keep it on a trusted network.
+The app is read-only (no route writes or deletes data) and has no authentication: anyone who can reach it can read every layer. Keep it on a trusted network if the data is private.

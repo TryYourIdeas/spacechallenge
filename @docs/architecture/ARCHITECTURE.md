@@ -72,8 +72,6 @@ Nuxt 4 / Vue 3 SPA with Leaflet. Geist fonts and design tokens live in
      summary), marking them `imported: true`. Their points are **not** loaded
      whole: `MapView` asks `/clusters` for the current viewport on every
      `moveend` (see §5a);
-  3. removes layers (`DELETE /api/layers/:id` for imported ones; built-in ones
-     are only dropped from the session).
 - `utils/layers.ts` validates every payload (shape, colour, coordinates) before
   it reaches the map; invalid layers surface as per-layer error states with retry.
 - Each layer has a colour **and** a marker shape so state is not colour-only.
@@ -85,7 +83,7 @@ so static layers keep working when the API is down.
 ## 4. API (Nitro, `frontend/server/`)
 
 The API is part of the Nuxt project and runs in the same image as the UI. The
-Compose `app` service serves it. The API is read-only apart from layer deletion;
+Compose `app` service serves it. The API is read-only (GET only);
 import is a local script (§5).
 
 | Route | Purpose |
@@ -94,7 +92,6 @@ import is a local script (§5).
 | `GET /api/layers/:id/clusters?bbox&zoom` | Viewport points grouped into PostGIS grid cells |
 | `GET /api/layers/:id/points?bbox` | Up to 50 individual points in a small box |
 | `GET /api/layers/:id/points/:row` | Every column of one point |
-| `DELETE /api/layers/:id` | Deletes a layer (points cascade) |
 | `GET /healthz`, `GET /readyz` | Liveness / readiness (`readyz` checks PostgreSQL) |
 
 Cross-cutting behaviour:
@@ -102,7 +99,7 @@ Cross-cutting behaviour:
 - **Input safety**: ids must be UUIDs (`idParam`). Errors
   use `fail()`, whose message is client-safe.
 - **CORS** (`middleware/cors.ts`): only for `/api/*`, only origins in
-  `CORS_ORIGINS`, methods GET/DELETE.
+  `CORS_ORIGINS`, methods GET.
 - **Startup** (`plugins/services.ts`): load config, wait for PostgreSQL, run
   migrations (skipped on Vercel). If config
   is missing, the API disables itself with a warning so `nuxt dev` still serves UI.
@@ -110,8 +107,9 @@ Cross-cutting behaviour:
 - **Connections** (`utils/services.ts`): lazily created, process-wide
   `pg.Pool` (max 8).
 - **Logging**: structured logs through `utils/log.ts`.
-- **No authentication** is implemented. Anyone who can reach the API can
-  delete layers. See gaps.
+- **No authentication** is implemented. The API is read-only, so nobody can
+  write or delete through it, but anyone who can reach it can read all layers.
+  See gaps.
 
 ## 5. CSV import (script)
 

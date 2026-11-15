@@ -37,7 +37,6 @@ image is defined by `Dockerfile` here; the Compose topology lives in `../backend
 | GET | `/api/layers/:id/clusters?bbox=w,s,e,n&zoom=z` | points in the viewport grouped into grid cells (`{items, truncated}`); `w > e` crosses the antimeridian |
 | GET | `/api/layers/:id/points?bbox=w,s,e,n` | up to 50 individual points in a small box (opens clusters that share coordinates) |
 | GET | `/api/layers/:id/points/:row` | every column of one point |
-| DELETE | `/api/layers/:id` | removes the layer and its points |
 
 Import is not part of the API. `npm run import -- <file.csv>` (or
 `../scripts/import_csv.sh`) runs `scripts/import-csv.ts`, which calls
@@ -73,8 +72,8 @@ Run everything: `./backend/docker/compose.sh up --build --wait` then open
 `http://127.0.0.1:8080`. For `nuxt dev` against the Compose databases, publish
 Postgres in `compose.local.yaml` and set `DATABASE_URL`.
 
-Known gap: there is no authentication yet, so anyone who can reach the app can
-delete layers.
+The API is read-only and has no authentication: anyone who can reach the app can
+read every layer. Layers are removed in the database, not from the app.
 
 ## Deployment targets
 

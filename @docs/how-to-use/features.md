@@ -22,7 +22,8 @@ What Layer Explorer does today. Keep this list in step with the code.
 - One transaction per file: all of the layer or nothing.
 - Re-importing a file name replaces its layer (layer id derives from the name).
 - Invalid-coordinate rows are skipped and counted.
-- Layers persist across reloads and can be deleted from the panel.
+- Layers persist across reloads. The app cannot delete them; remove a layer in
+  the database (`DELETE FROM layers WHERE id = ...`; points cascade).
 
 ## Viewport clustering
 
@@ -44,7 +45,6 @@ What Layer Explorer does today. Keep this list in step with the code.
 | GET | `/api/layers/:id/clusters` | Clustered viewport points |
 | GET | `/api/layers/:id/points` | Points in a small box |
 | GET | `/api/layers/:id/points/:row` | All columns of one point |
-| DELETE | `/api/layers/:id` | Remove a layer |
 | GET | `/healthz`, `/readyz` | Health and readiness |
 
 ## Platform and operations
