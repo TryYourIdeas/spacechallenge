@@ -92,7 +92,7 @@ private Docker network. PostgreSQL and Redis use service DNS and have no public
 ports. The local app port remains loopback-only for local development. The API runs
 inside the `app` service (`frontend/server/`); the `worker` service consumes the
 import queue. Both apply database migrations at startup. See
-`docs/architecture/ARCHITECTURE.md`.
+`@docs/architecture/ARCHITECTURE.md`.
 
 After the services start, deployment checks the API's HTTPS health URL. Only
 then does `current` point to the successful release. A failed deploy returns a

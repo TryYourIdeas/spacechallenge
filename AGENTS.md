@@ -24,7 +24,7 @@ project, `frontend/server/`) → PostgreSQL + pgvector
 talk only to the API. The API owns auth, validation, transactions, queue
 submission, and result delivery. PostgreSQL is the system of record; Redis is
 transport and must not silently replace durable storage. See
-`docs/architecture/ARCHITECTURE.md` for the full picture.
+`@docs/architecture/ARCHITECTURE.md` for the full picture.
 
 - One image, built from `frontend/` by `frontend/Dockerfile`, runs as
   two Compose services: `app` (`APP_ROLE=web`: SPA, `/api`, SSE, health routes)
@@ -81,6 +81,20 @@ For vector features, document the model, fixed dimension, distance metric and
 operator, index strategy, source/chunk lineage, refresh policy, and deletion
 behavior. Enforce dimensions in PostgreSQL; never downgrade vector behavior to
 text, JSON, or Redis without a deliberate documented architecture change.
+
+## Documentation
+
+`@docs/` is the single documentation directory (architecture, research, deployment,
+bootstrap, journal, how-to-use). Do not create a separate `docs/` directory.
+
+### User documentation
+
+`@docs/how-to-use/` holds the user-facing docs: `config.md` (how to configure and
+start the application: environment variables, Compose, scripts), `manual.md` (how
+to use it), and `features.md` (what it does, including the API). Any change that
+affects configuration, environment variables, scripts, deployment, UI behavior,
+API routes, data formats, or features must update the matching file in the same
+change. Do not report a task complete while these files disagree with the code.
 
 ## Verification and handoff
 

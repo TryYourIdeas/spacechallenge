@@ -8,7 +8,7 @@ no services were started, and no hosting was provisioned or deployed. The helper
 scripts are optional next steps for your team to configure and run separately.
 
 - The frontend (Nuxt SPA) and API (Nitro server) are one project in `frontend/`;
-  see `docs/architecture/ARCHITECTURE.md`.
+  see `@docs/architecture/ARCHITECTURE.md`.
 - `bash scripts/start.sh` opens the project menu. npm is an optional shortcut.
 - Docker with Compose is required only when you start the local backend.
 - `backend/docker/compose.sh` is the shared Compose entry point and creates a

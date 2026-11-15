@@ -15,7 +15,7 @@ services:
     environment: &app-env
       APP_ROLE: web
       PORT: ${API_CONTAINER_PORT:-8080}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}}
       DATABASE_HOST: postgres
       DATABASE_PORT: "5432"
       DATABASE_NAME: ${POSTGRES_DB:-app}
@@ -69,7 +69,7 @@ services:
     stop_grace_period: 30s
 
   postgres:
-    image: jlabrada/postgis-pgvector:0.1.0 
+    image: ${POSTGRES_IMAGE:-jlabrada/postgis-pgvector:0.1.0}
     <<: *service-defaults
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-app}

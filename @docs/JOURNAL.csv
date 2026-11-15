@@ -10,3 +10,7 @@ Nuxt + Leaflet layer explorer with point detail form,"create a nuxtjs app with l
 "Fix doc drift in DEPLOYMENT and BOOTSTRAP","fix those too.",2026-11-14T22:34:48-03:00,unavailable,unavailable
 "Move Dockerfile to frontend/","move this docker file to the frontend directory if it builds the frontend backend/services/api/Dockerfile    Builds the Nuxt project in frontend/ into one image used by app and worker",2026-11-14T22:36:43-03:00,unavailable,unavailable
 "PostGIS grid clustering for server layers","yes, implement the PostGIS grid clustering design",2026-11-14T23:22:55-03:00,unavailable,unavailable
+"Translate LEIAME.md to English README","translate the LEIAME.md to english README.md file",2026-11-15T09:14:41-03:00,unavailable,unavailable
+"Add how-to-use docs and AGENTS rule","create a directory how-to-use in the docs directory with three files: config.md, manual.md and features.md describing how to configure the application. How to use it. and the features of the application. Update the AGENTS.md file to keeps these files updated with any changes to the project.",2026-11-15T10:00:00-03:00,unavailable,unavailable
+"Merge docs into @docs","integrate the @docs and docs directories into a single directory @docs and update AGENTS.md accordingly",2026-11-15T10:10:00-03:00,unavailable,unavailable
+"Compose uses POSTGRES_IMAGE","yes, make compose.yaml use POSTGRES_IMAGE",2026-11-15T10:20:00-03:00,unavailable,unavailable

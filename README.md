@@ -11,7 +11,7 @@ Server-Sent Events.
   PostgreSQL with pgvector, and Redis (BullMQ queue).
 - `data/` holds the CSV files offered for import.
 
-See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for
+See [@docs/architecture/ARCHITECTURE.md](@docs/architecture/ARCHITECTURE.md) for
 the architecture.
 
 ## Get started

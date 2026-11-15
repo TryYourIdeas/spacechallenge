@@ -61,7 +61,7 @@ PostgreSQL or Redis.
 | `backend/services/queue/` | Redis notes |
 | `data/` | Source CSV files offered for import |
 | `scripts/` | `deploy_frontend.sh` (Pages), `deploy_backend.sh` + `vm_activate.sh` (VM), `start.sh` menu |
-| `@docs/` | Bootstrap, deployment, research notes, `JOURNAL.csv`; `docs/research/` holds papers |
+| `@docs/` | Single documentation directory: architecture, how-to-use, bootstrap, deployment, research notes and papers (`research/`), `JOURNAL.csv` |
 
 ## 3. Frontend
 
@@ -259,8 +259,8 @@ erDiagram
   model, dimension, metric/operator, index, lineage, refresh and deletion in
   `SCHEMA.md` and enforce the dimension in PostgreSQL. Do not move vectors to
   JSON or Redis.
-- The PostgreSQL image is `jlabrada/postgis-pgvector:0.1.0` (PostGIS plus
-  pgvector). PostGIS is used for the viewport index and grid clustering only.
+- The PostgreSQL image defaults to `jlabrada/postgis-pgvector:0.1.0` (PostGIS plus
+  pgvector) and is overridable with `POSTGRES_IMAGE`; any override must include both extensions. PostGIS is used for the viewport index and grid clustering only.
 
 ## 7. Runtime topology and deployment
 
@@ -270,7 +270,7 @@ erDiagram
 |---|---|---|
 | `app` | built from `frontend/` via `frontend/Dockerfile` | `APP_ROLE=web`; port bound to `127.0.0.1` locally; health check on `/readyz` |
 | `worker` | same image | `APP_ROLE=worker`; heartbeat health check; 768 MB limit, 30 s grace |
-| `postgres` | `jlabrada/postgis-pgvector:0.1.0` | named volume `postgres_data`; `init/` mounted; `pg_isready` check |
+| `postgres` | `${POSTGRES_IMAGE}` (default `jlabrada/postgis-pgvector:0.1.0`) | named volume `postgres_data`; `init/` mounted; `pg_isready` check |
 | `queue` | `redis:7-alpine` | `--appendonly yes`; named volume `queue_data` |
 
 Hardening on both app services: non-root `node` user, `read_only` root with
@@ -335,8 +335,9 @@ ignored `compose.local.yaml` override. Runtime settings:
    `@docs/` describe this.
 2. **No authentication or authorization** on any route, including import and
    delete. Acceptable only on a trusted network; add auth before public exposure.
-3. **`.env.example` drift**: it defines `POSTGRES_IMAGE`, but `compose.yaml`
-   hardcodes `jlabrada/postgis-pgvector:0.1.0` and ignores it.
+3. **Stale local `.env`**: files copied from an older `.env.example` may set
+   `POSTGRES_IMAGE=pgvector/pgvector:pg16`, which lacks PostGIS and breaks
+   migration `0003`. Update it to the current `.env.example` value.
 4. **`@docs/DEPLOYMENT.md`** still calls the API a placeholder and mentions an
    `api` service and a `docs/` layout that predate the `app`/`worker` split.
 5. **Single-writer assumption**: one `worker` instance is expected. Scaling it
