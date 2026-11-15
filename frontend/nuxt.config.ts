@@ -8,6 +8,12 @@ export default defineNuxtConfig({
   // static build (Pages) set NUXT_PUBLIC_API_BASE to the API's https origin, no trailing slash.
   runtimeConfig: { public: { apiBase: '' } },
   nitro: { compressPublicAssets: true },
+  // Dev server only: allow access through the Tailscale MagicDNS hostname.
+  vite: {
+    server: {
+      allowedHosts: ['railson-silva.tail4526a3.ts.net'],
+    },
+  },
   css: [
     '@fontsource-variable/geist',
     '@fontsource-variable/geist-mono',

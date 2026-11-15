@@ -84,7 +84,12 @@ export function parseClusterResponse(raw: unknown): ClusterResponse {
       ...(typeof it.name === 'string' && it.name ? { name: it.name } : {}),
     })
   }
-  return { items, truncated: raw.truncated === true }
+  return {
+    items,
+    truncated: raw.truncated === true,
+    ...(typeof raw.filteredCount === 'number' && Number.isFinite(raw.filteredCount) ? { filteredCount: raw.filteredCount } : {}),
+    ...(raw.filteredBounds === null || isBounds(raw.filteredBounds) ? { filteredBounds: raw.filteredBounds } : {}),
+  }
 }
 
 export function parsePointList(raw: unknown): { points: PointSummary[]; truncated: boolean } {

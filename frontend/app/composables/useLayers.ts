@@ -1,4 +1,5 @@
 import type { ClusterResponse, DataFile, Layer, LayerMeta, LayerRow, PointSummary, ServerTask } from '~/types/layers'
+import type { ServerFilterPayload } from '~/utils/filters'
 import { parseClusterResponse, parseLayer, parseLayerIndex, parsePointList, parsePointRow, parseRemoteLayer } from '~/utils/layers'
 
 export type LayerState =
@@ -113,14 +114,16 @@ export function useLayers() {
   }
 
   /** Grid-clustered points of a server layer inside `bbox` ("west,south,east,north") at `zoom`. */
-  async function fetchClusters(id: string, bbox: string, zoom: number, signal: AbortSignal): Promise<ClusterResponse> {
-    const res = await api(`/api/layers/${id}/clusters?bbox=${encodeURIComponent(bbox)}&zoom=${zoom}`, { signal })
+  async function fetchClusters(id: string, bbox: string, zoom: number, signal: AbortSignal, filter?: ServerFilterPayload | null): Promise<ClusterResponse> {
+    const f = filter ? `&filter=${encodeURIComponent(JSON.stringify(filter))}` : ''
+    const res = await api(`/api/layers/${id}/clusters?bbox=${encodeURIComponent(bbox)}&zoom=${zoom}${f}`, { signal })
     return parseClusterResponse(await res.json())
   }
 
   /** Individual points inside a small box, for clusters that zooming cannot split. */
-  async function fetchPoints(id: string, bbox: string, signal: AbortSignal): Promise<{ points: PointSummary[]; truncated: boolean }> {
-    const res = await api(`/api/layers/${id}/points?bbox=${encodeURIComponent(bbox)}`, { signal })
+  async function fetchPoints(id: string, bbox: string, signal: AbortSignal, filter?: ServerFilterPayload | null): Promise<{ points: PointSummary[]; truncated: boolean }> {
+    const f = filter ? `&filter=${encodeURIComponent(JSON.stringify(filter))}` : ''
+    const res = await api(`/api/layers/${id}/points?bbox=${encodeURIComponent(bbox)}${f}`, { signal })
     return parsePointList(await res.json())
   }
 

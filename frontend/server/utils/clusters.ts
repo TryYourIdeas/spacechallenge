@@ -48,3 +48,113 @@ export function parseRowIdx(raw: unknown): number | null {
   const n = Number(raw)
   return n <= 2_147_483_647 ? n : null
 }
+
+const FIELD_KEY = /^c\d{1,3}$/
+
+export interface ParsedFilterRule {
+  kind: 'range' | 'text' | 'equals_one'
+  field: string
+  min?: number | null
+  max?: number | null
+  values?: string[]
+  hideMissing?: boolean
+}
+
+export interface ParsedServerFilter {
+  boxes?: Bbox[]
+  distance?: { lat: number; lon: number; km: number }
+  brazilField?: string
+  mode?: 'and' | 'or'
+  rules?: ParsedFilterRule[]
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/**
+ * Parses and validates an optional JSON `?filter=` query string.
+ * Returns `undefined` when absent/empty, or `null` when malformed.
+ */
+export function parseFilterParam(raw: unknown): ParsedServerFilter | undefined | null {
+  if (raw === undefined || raw === null || raw === '') return undefined
+  if (typeof raw !== 'string' || raw.length > 8192) return null
+  let obj: unknown
+  try {
+    obj = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!isObj(obj)) return null
+
+  const out: ParsedServerFilter = {}
+
+  if (obj.brazilField !== undefined) {
+    if (typeof obj.brazilField !== 'string' || !FIELD_KEY.test(obj.brazilField)) return null
+    out.brazilField = obj.brazilField
+  }
+
+  if (obj.boxes !== undefined) {
+    if (!Array.isArray(obj.boxes) || obj.boxes.length === 0 || obj.boxes.length > 10) return null
+    const boxes: Bbox[] = []
+    for (const b of obj.boxes) {
+      if (!isObj(b)) return null
+      const { west, south, east, north } = b
+      if (
+        typeof west !== 'number' || typeof south !== 'number' ||
+        typeof east !== 'number' || typeof north !== 'number' ||
+        !Number.isFinite(west) || !Number.isFinite(south) ||
+        !Number.isFinite(east) || !Number.isFinite(north) ||
+        south > north || south < -90 || north > 90 ||
+        west < -180 || west > 180 || east < -180 || east > 180
+      ) return null
+      boxes.push({ west, south, east, north })
+    }
+    out.boxes = boxes
+  }
+
+  if (obj.distance !== undefined) {
+    if (!isObj(obj.distance)) return null
+    const { lat, lon, km } = obj.distance
+    if (
+      typeof lat !== 'number' || typeof lon !== 'number' || typeof km !== 'number' ||
+      !Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(km) ||
+      lat < -90 || lat > 90 || lon < -180 || lon > 180 || km <= 0 || km > 25000
+    ) return null
+    out.distance = { lat, lon, km }
+  }
+
+  if (obj.mode !== undefined) {
+    if (obj.mode !== 'and' && obj.mode !== 'or') return null
+    out.mode = obj.mode
+  }
+
+  if (obj.rules !== undefined) {
+    if (!Array.isArray(obj.rules) || obj.rules.length > 30) return null
+    const rules: ParsedFilterRule[] = []
+    for (const r of obj.rules) {
+      if (!isObj(r) || typeof r.field !== 'string' || !FIELD_KEY.test(r.field)) return null
+      const hideMissing = r.hideMissing !== false
+      if (r.kind === 'equals_one') {
+        rules.push({ kind: 'equals_one', field: r.field })
+      } else if (r.kind === 'range') {
+        const min = r.min === null || r.min === undefined ? null : (typeof r.min === 'number' && Number.isFinite(r.min) ? r.min : NaN)
+        const max = r.max === null || r.max === undefined ? null : (typeof r.max === 'number' && Number.isFinite(r.max) ? r.max : NaN)
+        if (Number.isNaN(min) || Number.isNaN(max) || (min === null && max === null)) return null
+        rules.push({ kind: 'range', field: r.field, min, max, hideMissing })
+      } else if (r.kind === 'text') {
+        if (!Array.isArray(r.values) || r.values.length === 0 || r.values.length > 20) return null
+        const vals: string[] = []
+        for (const v of r.values) {
+          if (typeof v !== 'string' || v.trim() === '' || v.length > 120) return null
+          vals.push(v.trim())
+        }
+        rules.push({ kind: 'text', field: r.field, values: vals, hideMissing })
+      } else {
+        return null
+      }
+    }
+    if (rules.length > 0) out.rules = rules
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined
+}

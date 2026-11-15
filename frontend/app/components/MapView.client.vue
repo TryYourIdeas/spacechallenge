@@ -1,31 +1,79 @@
 <script setup lang="ts">
 import L from 'leaflet'
-import type { ClusterItem, ClusterResponse, Layer, LayerRow, PointSummary, SelectedPoint } from '~/types/layers'
+import type { ClusterItem, ClusterResponse, GlobalFilter, LatLngBoundsTuple, Layer, LayerFilter, LayerRow, PointSummary, SelectedPoint } from '~/types/layers'
+import {
+  buildServerFilterPayload,
+  CONTINENTS,
+  COUNTRIES,
+  countGlobalFilters,
+  countLayerFilters,
+  filterLayerRows,
+  hasActiveFilters,
+  type ServerFilterPayload,
+} from '~/utils/filters'
 import { clusterSize, viewportBbox } from '~/utils/viewport'
 
 const props = defineProps<{
   layers: Layer[]
   visible: Set<string>
   selected: SelectedPoint | null
+  globalFilter: GlobalFilter
+  layerFilters: Record<string, LayerFilter>
+  pickingOrigin: boolean
   /** Grid-clustered points of a server layer in a viewport. */
-  fetchClusters: (id: string, bbox: string, zoom: number, signal: AbortSignal) => Promise<ClusterResponse>
+  fetchClusters: (id: string, bbox: string, zoom: number, signal: AbortSignal, filter?: ServerFilterPayload | null) => Promise<ClusterResponse>
   /** Individual points in a small box, for clusters that cannot be split by zooming. */
-  fetchPoints: (id: string, bbox: string, signal: AbortSignal) => Promise<{ points: PointSummary[]; truncated: boolean }>
+  fetchPoints: (id: string, bbox: string, signal: AbortSignal, filter?: ServerFilterPayload | null) => Promise<{ points: PointSummary[]; truncated: boolean }>
 }>()
-const emit = defineEmits<{ select: [point: SelectedPoint, viaKeyboard: boolean] }>()
+const emit = defineEmits<{
+  select: [point: SelectedPoint, viaKeyboard: boolean]
+  'pick-origin': [lat: number, lon: number]
+  'remote-counts': [counts: Record<string, number>]
+}>()
 
 const MAX_ZOOM = 19
 const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
 
 const el = ref<HTMLElement>()
 let map: L.Map | undefined
+let radiusCircle: L.Circle | undefined
 const groups = new Map<string, L.LayerGroup>()
 const markers = new Map<string, { marker: L.Marker; layer: Layer }>()
 const remoteKeys = new Map<string, string[]>()
+const remoteFilteredBounds = new Map<string, LatLngBoundsTuple | null>()
+const remoteCounts = reactive<Record<string, number>>({})
 const key = (layerId: string, rowId: string) => `${layerId}\u0000${rowId}`
 
 // Viewport loading state for server layers, announced to assistive technology.
 const view = reactive({ loading: false, error: '', truncated: false })
+let pendingFilterFit = false
+
+const anyFilterActive = computed(() =>
+  countGlobalFilters(props.globalFilter) > 0 ||
+  Object.values(props.layerFilters).some(f => countLayerFilters(f) > 0),
+)
+
+const visibleFilteredSummary = computed(() => {
+  if (!anyFilterActive.value) return ''
+  let total = 0
+  for (const l of props.layers) {
+    if (!props.visible.has(l.id)) continue
+    if (l.remote) total += remoteCounts[l.id] ?? 0
+    else total += filterLayerRows(l, props.globalFilter, props.layerFilters[l.id]).length
+  }
+  const parts: string[] = [`${total.toLocaleString('en-US')} filtered points`]
+  if (props.globalFilter.country) {
+    const c = COUNTRIES.find(x => x.id === props.globalFilter.country)
+    if (c) parts.push(c.label)
+  } else if (props.globalFilter.continent) {
+    const c = CONTINENTS.find(x => x.id === props.globalFilter.continent)
+    if (c) parts.push(c.label)
+  }
+  if (props.globalFilter.distanceKm && props.globalFilter.originLat !== null) {
+    parts.push(`Radius ≤ ${props.globalFilter.distanceKm} km`)
+  }
+  return parts.join(' • ')
+})
 
 function icon(layer: Layer, active: boolean) {
   return L.divIcon({
@@ -50,12 +98,16 @@ function selectPoint(layer: Layer, row: LayerRow, event: unknown) {
   emit('select', { layer, fields: layer.fields, row }, viaKeyboard)
 }
 
-/** Static layers: every row is a marker. */
+/** Static layers: every filtered row is a marker. */
 function build(layer: Layer) {
+  for (const [k, v] of markers) {
+    if (v.layer.id === layer.id) markers.delete(k)
+  }
   groups.get(layer.id)?.clearLayers()
   const group = groups.get(layer.id) ?? L.layerGroup()
   groups.set(layer.id, group)
-  for (const row of layer.rows) {
+  const rows = filterLayerRows(layer, props.globalFilter, props.layerFilters[layer.id])
+  for (const row of rows) {
     const label = `${layer.label}: ${row.name ?? row.id}`
     const marker = L.marker([row.latitude, row.longitude], {
       icon: icon(layer, false), title: label, alt: label, keyboard: true, riseOnHover: true,
@@ -63,6 +115,31 @@ function build(layer: Layer) {
     marker.on('click', e => selectPoint(layer, row, e))
     markers.set(key(layer.id, row.id), { marker, layer })
     group.addLayer(marker)
+  }
+}
+
+function rebuildStaticLayers() {
+  for (const layer of props.layers) {
+    if (!layer.remote) build(layer)
+  }
+  highlight()
+}
+
+function syncRadiusOverlay() {
+  if (!map) return
+  radiusCircle?.remove()
+  radiusCircle = undefined
+  const { distanceKm, originLat, originLon } = props.globalFilter
+  if (distanceKm !== null && distanceKm > 0 && originLat !== null && originLon !== null) {
+    radiusCircle = L.circle([originLat, originLon], {
+      radius: distanceKm * 1000,
+      color: '#00e5ff',
+      weight: 2,
+      dashArray: '6 4',
+      fillColor: '#00e5ff',
+      fillOpacity: 0.08,
+      interactive: false,
+    }).addTo(map)
   }
 }
 
@@ -74,6 +151,7 @@ function sync() {
       group.remove(); groups.delete(id)
       for (const k of remoteKeys.get(id) ?? []) markers.delete(k)
       remoteKeys.delete(id)
+      remoteFilteredBounds.delete(id)
     }
   }
   for (const layer of props.layers) {
@@ -137,9 +215,10 @@ async function listCluster(layer: Layer, item: ClusterItem, bounds: L.LatLngBoun
   }
   note('Loading points…', 'status')
   try {
+    const filterPayload = buildServerFilterPayload(layer, props.globalFilter, props.layerFilters[layer.id])
     const { points, truncated } = await props.fetchPoints(
       layer.id, viewportBbox({ west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() }),
-      new AbortController().signal)
+      new AbortController().signal, filterPayload)
     const heading = Object.assign(document.createElement('p'), {
       textContent: `${item.count.toLocaleString('en-US')} points share this location`,
     })
@@ -178,7 +257,11 @@ async function refreshRemote() {
   if (!map) return
   refreshCtl?.abort()
   const targets = props.layers.filter(l => l.remote && l.remote.rowCount > 0 && props.visible.has(l.id))
-  if (!targets.length) { view.loading = false; view.error = ''; view.truncated = false; return }
+  if (!targets.length) {
+    view.loading = false; view.error = ''; view.truncated = false
+    if (pendingFilterFit) { pendingFilterFit = false; fitFiltered() }
+    return
+  }
   const ctl = (refreshCtl = new AbortController())
   const b = map.getBounds()
   const bbox = viewportBbox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() })
@@ -188,9 +271,17 @@ async function refreshRemote() {
   let truncated = false
   await Promise.all(targets.map(async (layer) => {
     try {
-      const res = await props.fetchClusters(layer.id, bbox, zoom, ctl.signal)
+      const payload = buildServerFilterPayload(layer, props.globalFilter, props.layerFilters[layer.id])
+      const res = await props.fetchClusters(layer.id, bbox, zoom, ctl.signal, payload)
       if (ctl.signal.aborted) return
       renderClusters(layer, res)
+      if (res.filteredCount !== undefined) {
+        remoteCounts[layer.id] = res.filteredCount
+        remoteFilteredBounds.set(layer.id, res.filteredBounds ?? null)
+      } else {
+        delete remoteCounts[layer.id]
+        remoteFilteredBounds.delete(layer.id)
+      }
       truncated ||= res.truncated
       highlight()
     } catch (e) {
@@ -198,9 +289,14 @@ async function refreshRemote() {
     }
   }))
   if (ctl.signal.aborted) return // a newer request owns the status now
+  emit('remote-counts', { ...remoteCounts })
   view.loading = false
   view.error = error
   view.truncated = truncated
+  if (pendingFilterFit) {
+    pendingFilterFit = false
+    fitFiltered()
+  }
 }
 
 function fit() {
@@ -208,11 +304,53 @@ function fit() {
   const pts: L.LatLngTuple[] = []
   for (const l of props.layers) {
     if (!props.visible.has(l.id)) continue
-    for (const r of l.rows) pts.push([r.latitude, r.longitude])
+    for (const r of filterLayerRows(l, props.globalFilter, props.layerFilters[l.id])) {
+      pts.push([r.latitude, r.longitude])
+    }
     if (l.remote?.bounds) pts.push(l.remote.bounds[0], l.remote.bounds[1])
   }
   if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 5 })
 }
+
+function fitFiltered() {
+  if (!map) return
+  if (radiusCircle) {
+    map.fitBounds(radiusCircle.getBounds(), { padding: [40, 40], maxZoom: 8 })
+    return
+  }
+  const pts: L.LatLngTuple[] = []
+  for (const l of props.layers) {
+    if (!props.visible.has(l.id)) continue
+    if (!l.remote) {
+      for (const r of filterLayerRows(l, props.globalFilter, props.layerFilters[l.id])) {
+        pts.push([r.latitude, r.longitude])
+      }
+    } else if (hasActiveFilters(props.globalFilter, props.layerFilters[l.id])) {
+      const fb = remoteFilteredBounds.get(l.id)
+      if (fb) pts.push(fb[0], fb[1])
+    } else if (l.remote.bounds) {
+      pts.push(l.remote.bounds[0], l.remote.bounds[1])
+    }
+  }
+  if (pts.length === 0) {
+    if (props.globalFilter.country) {
+      const c = COUNTRIES.find(x => x.id === props.globalFilter.country)
+      if (c && c.boxes[0]) pts.push([c.boxes[0].south, c.boxes[0].west], [c.boxes[0].north, c.boxes[0].east])
+    } else if (props.globalFilter.continent) {
+      const c = CONTINENTS.find(x => x.id === props.globalFilter.continent)
+      if (c && c.boxes[0]) pts.push([c.boxes[0].south, c.boxes[0].west], [c.boxes[0].north, c.boxes[0].east])
+    }
+  }
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 7 })
+}
+
+function getMapCenter(): { lat: number; lon: number } | null {
+  if (!map) return null
+  const c = map.getCenter()
+  return { lat: c.lat, lon: c.lng }
+}
+
+defineExpose({ fitFiltered, getMapCenter })
 
 let lastActive: { marker: L.Marker; layer: Layer } | undefined
 function highlight() {
@@ -232,7 +370,12 @@ onMounted(() => {
     maxZoom: MAX_ZOOM, className: 'basemap-dark',
   }).addTo(map)
   map.on('moveend', scheduleRefresh)
-  sync(); fit(); scheduleRefresh()
+  map.on('click', (e: L.LeafletMouseEvent) => {
+    if (props.pickingOrigin) {
+      emit('pick-origin', e.latlng.lat, e.latlng.lng)
+    }
+  })
+  sync(); syncRadiusOverlay(); fit(); scheduleRefresh()
 })
 onBeforeUnmount(() => {
   clearTimeout(refreshTimer)
@@ -245,29 +388,48 @@ onBeforeUnmount(() => {
 watch(() => props.layers, () => { sync(); fit(); highlight(); scheduleRefresh() })
 watch(() => props.visible, () => { sync(); fit(); scheduleRefresh() })
 watch(() => props.selected, highlight)
+watch(
+  [() => props.globalFilter, () => props.layerFilters],
+  () => {
+    rebuildStaticLayers()
+    syncRadiusOverlay()
+    if (props.globalFilter.autoFit) pendingFilterFit = true
+    scheduleRefresh()
+  },
+  { deep: true },
+)
 </script>
 
 <template>
-  <div class="map-wrap">
+  <div class="map-wrap" :class="{ 'picking-origin': pickingOrigin }">
     <div ref="el" class="map" role="region" aria-label="Map of layer points. Markers are keyboard focusable; press Enter to open a point or zoom into a cluster." />
     <div class="map-status" aria-live="polite">
-      <p v-if="view.loading" class="chipnote">Loading points in view…</p>
+      <p v-if="pickingOrigin" class="chipnote active-filter">
+        ⊕ Click anywhere on the map to set the radius origin in km.
+      </p>
+      <p v-else-if="view.loading" class="chipnote">Loading points in view…</p>
       <p v-else-if="view.error" class="chipnote err" role="alert">
         Could not load points. {{ view.error }}
         <button type="button" @click="scheduleRefresh">Retry</button>
       </p>
       <p v-else-if="view.truncated" class="chipnote">Too many points to show here. Zoom in to see more.</p>
+      <p v-else-if="visibleFilteredSummary" class="chipnote active-filter">
+        <span>{{ visibleFilteredSummary }}</span>
+        <button type="button" @click="fitFiltered">⊡ Fit view</button>
+      </p>
     </div>
   </div>
 </template>
 
 <style>
 .map-wrap { position: relative; width: 100%; height: 100%; min-height: 320px; }
+.map-wrap.picking-origin .leaflet-container { cursor: crosshair; }
 .map { width: 100%; height: 100%; min-height: 320px; background: var(--color-bg-deep-space); }
 .map-status { position: absolute; left: 50%; top: 0.75rem; transform: translateX(-50%); z-index: 1000; max-width: calc(100% - 6rem); }
-.chipnote { margin: 0; padding: 0.4rem 0.8rem; border-radius: 999px; background: var(--color-surface-raised); border: 1px solid var(--color-border); color: var(--color-text-primary); font-size: 0.8125rem; }
+.chipnote { margin: 0; padding: 0.4rem 0.85rem; border-radius: 999px; background: var(--color-surface-raised); border: 1px solid var(--color-border); color: var(--color-text-primary); font-size: 0.8125rem; display: inline-flex; align-items: center; gap: 0.5rem; }
+.chipnote.active-filter { border-color: var(--color-accent-arctic-cyan); }
 .chipnote.err { border-color: var(--color-danger); color: var(--color-danger); }
-.chipnote button { margin-left: 0.5rem; background: transparent; color: var(--color-text-primary); border: 1px solid var(--color-accent-royal-purple); border-radius: 6px; padding: 0.15rem 0.6rem; min-height: 28px; cursor: pointer; font: inherit; }
+.chipnote button { margin-left: 0.25rem; background: transparent; color: var(--color-accent-arctic-cyan); border: 1px solid var(--color-accent-arctic-cyan); border-radius: 999px; padding: 0.15rem 0.65rem; min-height: 26px; cursor: pointer; font: inherit; font-size: 0.75rem; font-weight: 600; }
 .cl-wrap { background: none; border: 0; }
 .cl-wrap:focus-visible { outline: none; }
 .cl { display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--pt) 30%, var(--color-bg-deep-space)); border: 3px solid var(--pt); color: var(--color-text-primary); font: 600 0.8125rem var(--font-sans); box-shadow: 0 0 0 2px rgb(5 7 13 / 70%); }

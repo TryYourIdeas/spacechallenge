@@ -51,7 +51,39 @@ export interface ClusterItem {
   name?: string
 }
 
-export interface ClusterResponse { items: ClusterItem[]; truncated: boolean }
+export interface ClusterResponse {
+  items: ClusterItem[]
+  truncated: boolean
+  filteredCount?: number
+  filteredBounds?: LatLngBoundsTuple | null
+}
+
+export interface GlobalFilter {
+  continent: string
+  country: string
+  distanceKm: number | null
+  originLat: number | null
+  originLon: number | null
+  originLabel: string
+  autoFit: boolean
+}
+
+export interface NumericRangeFilter {
+  min: number | null
+  max: number | null
+}
+
+export interface LayerFilter {
+  mode: 'and' | 'or'
+  hideMissing: boolean
+  minerals: string[]
+  similarityPreset: string
+  similarityRange: NumericRangeFilter
+  lunarGroup: string
+  apolloMission: string
+  ranges: Record<string, NumericRangeFilter>
+  categories: Record<string, string>
+}
 
 /** A point from `/api/layers/:id/points` (no field values yet). */
 export interface PointSummary { id: string; latitude: number; longitude: number; name?: string }
