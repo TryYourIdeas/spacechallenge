@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { maskUrl, resolveDatabaseUrl, validateCsvPath } from '../../server/utils/cli'
+import { formatLayerTable, maskUrl, resolveDatabaseUrl, validateCsvPath } from '../../server/utils/cli'
 
 let dir: string
 beforeAll(async () => { dir = await mkdtemp(join(tmpdir(), 'cli-')) })
@@ -46,4 +46,18 @@ describe('validateCsvPath', () => {
     await expect(validateCsvPath(join(dir, 'x.txt'))).rejects.toThrow(/\.csv/)
     await expect(validateCsvPath(join(dir, 'empty.csv'))).rejects.toThrow(/empty/i)
   })
+})
+
+describe('formatLayerTable', () => {
+  it('aligns columns and shows - for unknown counts', () => {
+    const out = formatLayerTable([
+      { source: 'built-in', id: 'a', label: 'A', shape: 'circle', color: '#000000', rows: null },
+      { source: 'imported', id: 'b', label: 'Bee', shape: 'square', color: '#ffffff', rows: 12345 },
+    ]).split('\n')
+    expect(out[0]).toMatch(/^SOURCE\s+ID\s+LABEL\s+SHAPE\s+COLOR\s+ROWS$/)
+    expect(out[1]!.endsWith('-')).toBe(true)
+    expect(out[2]!.endsWith('12,345')).toBe(true)
+    expect(out[1]!.length).toBe(out[2]!.length)
+  })
+  it('reports an empty list', () => { expect(formatLayerTable([])).toBe('No layers found.') })
 })

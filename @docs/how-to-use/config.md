@@ -166,6 +166,22 @@ scripts/import_csv.sh path/to/file.csv        # or: cd frontend && npm run impor
   are skipped and counted. It exits non-zero with a message on any error.
 - Reload the app to see a new layer.
 
+### Listing and deleting layers
+
+```sh
+scripts/list_layers.sh                              # or: cd frontend && npm run layers
+scripts/delete_layer.sh <id-or-label> [--yes]       # or: cd frontend && npm run delete-layer -- <id-or-label>
+```
+
+- `list_layers.sh` is read-only: it prints the built-in layers and the layers
+  imported into PostgreSQL (id, label, shape, color, row count). If the database
+  is unreachable it still prints the built-ins, reports the error and exits non-zero.
+- `delete_layer.sh` removes one imported layer and all its points in a single
+  statement. It matches by id or label (an ambiguous label asks for the id), asks
+  for `y` to confirm, and refuses to run non-interactively without `--yes`.
+  Built-in layers are static files and cannot be deleted. The app stays read-only;
+  reload it to see the change. Re-importing the CSV recreates the layer.
+
 ### Converting GeoJSON to CSV
 
 ```sh

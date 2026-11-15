@@ -32,3 +32,15 @@ export async function validateCsvPath(path: string): Promise<string> {
   if (s.size === 0) throw new Error(`The file is empty: ${abs}`)
   return abs
 }
+
+export interface LayerRow { source: 'built-in' | 'imported'; id: string; label: string; shape: string; color: string; rows: number | null }
+
+/** Plain-text aligned table of layers; rows is null when the count is not known. */
+export function formatLayerTable(layers: LayerRow[]): string {
+  if (!layers.length) return 'No layers found.'
+  const head = ['SOURCE', 'ID', 'LABEL', 'SHAPE', 'COLOR', 'ROWS']
+  const body = layers.map(l => [l.source, l.id, l.label, l.shape, l.color, l.rows === null ? '-' : l.rows.toLocaleString('en-US')])
+  const widths = head.map((h, i) => Math.max(h.length, ...body.map(r => r[i]!.length)))
+  const line = (r: string[]) => r.map((c, i) => (i === 5 ? c.padStart(widths[i]!) : c.padEnd(widths[i]!))).join('  ').trimEnd()
+  return [line(head), ...body.map(line)].join('\n')
+}

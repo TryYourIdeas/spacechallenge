@@ -6,9 +6,11 @@ What Layer Explorer does today. Keep this list in step with the code.
 
 - Interactive Leaflet world map on a dark, deep-space themed UI (Geist
   typography; Arctic Cyan and Royal Purple highlights).
-- Built-in static layers loaded from `frontend/public/data/`: launch sites,
-  ground stations, meteorite finds. Defined in `layers.json` (id, label,
-  description, marker shape, `#RRGGBB` colour, source table).
+- Built-in static layers are loaded from `frontend/public/data/`, defined in
+  `layers.json` (id, label, description, marker shape, `#RRGGBB` colour, source
+  table). The manifest is currently empty; the old sample tables
+  (`launch-sites.json`, `ground-stations.json`, `meteorites.json`) remain on disk
+  but are not listed. Layers come from CSV imports.
 - Distinct marker shape and colour per layer; per-layer visibility toggles.
 - Per-layer status: point count, skipped invalid rows, loading and error states
   with retry.
@@ -20,6 +22,7 @@ What Layer Explorer does today. Keep this list in step with the code.
   or `npm run import -- <file.csv>`) that writes straight into PostgreSQL via
   `DATABASE_URL`; the web app only presents and filters.
 - `scripts/geojson_to_csv.sh` converts GeoJSON to a CSV with `lat`/`lon` for import.
+- `scripts/list_layers.sh` lists built-in and imported layers; `scripts/delete_layer.sh <id-or-label>` deletes an imported layer (confirmation required). Both run locally, not in the app.
 - One transaction per file: all of the layer or nothing.
 - Re-importing a file name replaces its layer (layer id derives from the name).
 - Invalid-coordinate rows are skipped and counted.

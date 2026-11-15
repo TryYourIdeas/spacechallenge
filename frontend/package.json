@@ -10,6 +10,8 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "import": "vite-node scripts/import-csv.ts --",
+    "layers": "vite-node scripts/list-layers.ts",
+    "delete-layer": "vite-node scripts/delete-layer.ts --",
     "geojson-to-csv": "vite-node scripts/geojson-to-csv.ts --"
   },
   "dependencies": {

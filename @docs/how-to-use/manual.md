@@ -53,6 +53,9 @@ Then reload the page: the new layer appears in the panel and on the map and
 stays after later reloads. See [config.md](config.md#importing-data) for
 details. Importing the same file name again replaces that layer.
 
+See what exists with `scripts/list_layers.sh`; remove an imported layer with
+`scripts/delete_layer.sh <id-or-label>` (see [config.md](config.md#listing-and-deleting-layers)).
+
 Have GeoJSON instead? Convert it first with `scripts/geojson_to_csv.sh file.geojson`
 (see [config.md](config.md#converting-geojson-to-csv)).
 
