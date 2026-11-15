@@ -138,6 +138,18 @@ describe('matchesGlobalFilter', () => {
     expect(countGlobalFilters(withRadius)).toBe(3)
     expect(matchesGlobalFilter(sampleLayer.rows[0]!, sampleLayer.fields, withRadius)).toBe(true)
     expect(matchesGlobalFilter(sampleLayer.rows[2]!, sampleLayer.fields, withRadius)).toBe(false)
+
+    const withTwoCircles = {
+      ...defaultGlobalFilter(),
+      circles: [
+        { id: 'c1', lat: 4.7278, lon: -60.7102, km: 50, label: 'RR' },
+        { id: 'c2', lat: 57.35, lon: -6.2, km: 50, label: 'Skye' },
+      ],
+    }
+    expect(countGlobalFilters(withTwoCircles)).toBe(2)
+    expect(matchesGlobalFilter(sampleLayer.rows[0]!, sampleLayer.fields, withTwoCircles)).toBe(true)
+    expect(matchesGlobalFilter(sampleLayer.rows[1]!, sampleLayer.fields, withTwoCircles)).toBe(true)
+    expect(matchesGlobalFilter(sampleLayer.rows[2]!, sampleLayer.fields, withTwoCircles)).toBe(false)
   })
 })
 
@@ -189,5 +201,18 @@ describe('matchesLayerFilter & filterLayerRows', () => {
       mode: 'and',
     })
     expect(payload?.rules).toHaveLength(2)
+
+    const multi = buildServerFilterPayload(sampleLayer, {
+      ...defaultGlobalFilter(),
+      circles: [
+        { id: 'c1', lat: 4.7, lon: -60.7, km: 200, label: 'A' },
+        { id: 'c2', lat: -20, lon: -50, km: 300, label: 'B' },
+      ],
+    })
+    expect(multi?.distances).toEqual([
+      { lat: 4.7, lon: -60.7, km: 200 },
+      { lat: -20, lon: -50, km: 300 },
+    ])
+    expect(multi?.distance).toBeUndefined()
   })
 })

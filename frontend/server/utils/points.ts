@@ -75,11 +75,15 @@ export function filterPredicate(
     if (boxParts.length > 0) clauses.push(`(${boxParts.join(' OR ')})`)
   }
 
-  if (filter.distance) {
-    const pLon = push(filter.distance.lon)
-    const pLat = push(filter.distance.lat)
-    const pMeters = push(filter.distance.km * 1000)
-    clauses.push(`ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(${pLon}, ${pLat}), 4326)::geography, ${pMeters})`)
+  const circles = [...(filter.distance ? [filter.distance] : []), ...(filter.distances ?? [])]
+  if (circles.length > 0) {
+    const parts = circles.map((c) => {
+      const pLon = push(c.lon)
+      const pLat = push(c.lat)
+      const pMeters = push(c.km * 1000)
+      return `ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(${pLon}, ${pLat}), 4326)::geography, ${pMeters})`
+    })
+    clauses.push(parts.length === 1 ? parts[0]! : `(${parts.join(' OR ')})`)
   }
 
   if (filter.rules && filter.rules.length > 0) {

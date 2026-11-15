@@ -69,6 +69,20 @@ describe('parseFilterParam & filterPredicate', () => {
     expect(parseFilterParam('{bad')).toBeNull()
     expect(parseFilterParam(JSON.stringify({ brazilField: 'sql_inject' }))).toBeNull()
     expect(parseFilterParam(JSON.stringify({ distance: { lat: 95, lon: 0, km: 100 } }))).toBeNull()
+    expect(parseFilterParam(JSON.stringify({ distances: [] }))).toBeNull()
     expect(parseFilterParam(JSON.stringify({ rules: [{ kind: 'range', field: 'bad', min: 1 }] }))).toBeNull()
+  })
+
+  it('ORs multiple distance circles in filterPredicate', () => {
+    const parsed = parseFilterParam(JSON.stringify({
+      distances: [
+        { lat: 4.7, lon: -60.7, km: 200 },
+        { lat: 57.35, lon: -6.2, km: 100 },
+      ],
+    }))
+    expect(parsed).toBeTruthy()
+    const pred = filterPredicate(parsed!, 3)
+    expect(pred.sql).toContain(' OR ')
+    expect(pred.params).toEqual([-60.7, 4.7, 200000, -6.2, 57.35, 100000])
   })
 })

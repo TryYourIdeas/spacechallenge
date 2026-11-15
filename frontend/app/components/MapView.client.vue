@@ -2,6 +2,7 @@
 import L from 'leaflet'
 import type { ClusterItem, ClusterResponse, GlobalFilter, LatLngBoundsTuple, Layer, LayerFilter, LayerRow, PointSummary, SelectedPoint } from '~/types/layers'
 import {
+  activeCircles,
   buildServerFilterPayload,
   CONTINENTS,
   COUNTRIES,
@@ -20,6 +21,9 @@ const props = defineProps<{
   globalFilter: GlobalFilter
   layerFilters: Record<string, LayerFilter>
   pickingOrigin: boolean
+  addingCircle?: boolean
+  activeCircleId?: string | null
+  suppressAutoFit?: boolean
   /** Grid-clustered points of a server layer in a viewport. */
   fetchClusters: (id: string, bbox: string, zoom: number, signal: AbortSignal, filter?: ServerFilterPayload | null) => Promise<ClusterResponse>
   /** Individual points in a small box, for clusters that cannot be split by zooming. */
@@ -28,6 +32,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [point: SelectedPoint, viaKeyboard: boolean]
   'pick-origin': [lat: number, lon: number]
+  'select-circle': [id: string]
   'remote-counts': [counts: Record<string, number>]
 }>()
 
@@ -36,7 +41,8 @@ const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFracti
 
 const el = ref<HTMLElement>()
 let map: L.Map | undefined
-let radiusCircle: L.Circle | undefined
+let radiusCircles: L.Circle[] = []
+let radiusDots: L.CircleMarker[] = []
 const groups = new Map<string, L.LayerGroup>()
 const markers = new Map<string, { marker: L.Marker; layer: Layer }>()
 const remoteKeys = new Map<string, string[]>()
@@ -69,8 +75,11 @@ const visibleFilteredSummary = computed(() => {
     const c = CONTINENTS.find(x => x.id === props.globalFilter.continent)
     if (c) parts.push(c.label)
   }
-  if (props.globalFilter.distanceKm && props.globalFilter.originLat !== null) {
-    parts.push(`Radius ≤ ${props.globalFilter.distanceKm} km`)
+  const circles = activeCircles(props.globalFilter)
+  if (circles.length === 1) {
+    parts.push(`Radius ≤ ${circles[0]!.km} km`)
+  } else if (circles.length > 1) {
+    parts.push(`${circles.length} circles (${circles.map(c => c.km.toLocaleString('en-US')).join(' + ')} km)`)
   }
   return parts.join(' • ')
 })
@@ -127,20 +136,56 @@ function rebuildStaticLayers() {
 
 function syncRadiusOverlay() {
   if (!map) return
-  radiusCircle?.remove()
-  radiusCircle = undefined
-  const { distanceKm, originLat, originLon } = props.globalFilter
-  if (distanceKm !== null && distanceKm > 0 && originLat !== null && originLon !== null) {
-    radiusCircle = L.circle([originLat, originLon], {
-      radius: distanceKm * 1000,
-      color: '#00e5ff',
+  for (const c of radiusCircles) c.remove()
+  for (const d of radiusDots) d.remove()
+  radiusCircles = []
+  radiusDots = []
+  const list = activeCircles(props.globalFilter)
+  const selectedId = props.activeCircleId && list.some(c => c.id === props.activeCircleId)
+    ? props.activeCircleId
+    : list[list.length - 1]?.id
+
+  list.forEach((circle, idx) => {
+    const isSelected = circle.id === selectedId
+    const color = isSelected ? '#00e5ff' : '#b79cff'
+    const layer = L.circle([circle.lat, circle.lon], {
+      radius: circle.km * 1000,
+      color,
+      weight: isSelected ? 3 : 2,
+      dashArray: isSelected ? undefined : '8 5',
+      fillColor: color,
+      fillOpacity: isSelected ? 0.14 : 0.08,
+      interactive: !props.pickingOrigin,
+    }).addTo(map!)
+    const badge = isSelected
+      ? `● Circle ${idx + 1} · ${circle.km.toLocaleString('en-US')} km (Selected)`
+      : `○ Circle ${idx + 1} · ${circle.km.toLocaleString('en-US')} km (Click to select)`
+    const showPermanentTooltip = isSelected || list.length <= 10
+    layer.bindTooltip(badge, {
+      permanent: showPermanentTooltip,
+      direction: 'top',
+      offset: [0, -8],
+      className: isSelected ? 'circle-tag circle-tag-selected' : 'circle-tag',
+    })
+    layer.on('click', () => {
+      if (!props.pickingOrigin) emit('select-circle', circle.id)
+    })
+
+    const dot = L.circleMarker([circle.lat, circle.lon], {
+      radius: isSelected ? 6 : 5,
+      color: '#ffffff',
       weight: 2,
-      dashArray: '6 4',
-      fillColor: '#00e5ff',
-      fillOpacity: 0.08,
-      interactive: false,
-    }).addTo(map)
-  }
+      fillColor: color,
+      fillOpacity: 1,
+      interactive: !props.pickingOrigin,
+    }).addTo(map!)
+    dot.on('click', () => {
+      if (!props.pickingOrigin) emit('select-circle', circle.id)
+    })
+
+    radiusCircles.push(layer)
+    radiusDots.push(dot)
+  })
 }
 
 function sync() {
@@ -324,8 +369,10 @@ function fit() {
 
 function fitFiltered() {
   if (!map) return
-  if (radiusCircle) {
-    map.fitBounds(radiusCircle.getBounds(), { padding: [40, 40], maxZoom: 8 })
+  if (radiusCircles.length > 0) {
+    const combined = radiusCircles[0]!.getBounds()
+    for (let i = 1; i < radiusCircles.length; i++) combined.extend(radiusCircles[i]!.getBounds())
+    map.fitBounds(combined, { padding: [40, 40], maxZoom: 8 })
     return
   }
   const pts: L.LatLngTuple[] = []
@@ -360,7 +407,24 @@ function getMapCenter(): { lat: number; lon: number } | null {
   return { lat: c.lat, lon: c.lng }
 }
 
-defineExpose({ fitFiltered, getMapCenter })
+function getVisibleLayerPoints(layerId: string): Array<{ id: string; lat: number; lon: number; label: string }> {
+  const out: Array<{ id: string; lat: number; lon: number; label: string }> = []
+  const prefix = `${layerId}\u0000`
+  for (const [k, entry] of markers) {
+    if (!k.startsWith(prefix)) continue
+    const id = k.slice(prefix.length)
+    const ll = entry.marker.getLatLng()
+    const title = entry.marker.options.title ?? id
+    const label = title.startsWith(`${entry.layer.label}: `)
+      ? title.slice(entry.layer.label.length + 2)
+      : title
+    out.push({ id, lat: ll.lat, lon: ll.lng, label })
+    if (out.length >= 200) break
+  }
+  return out
+}
+
+defineExpose({ fitFiltered, getMapCenter, getVisibleLayerPoints })
 
 let lastActive: { marker: L.Marker; layer: Layer } | undefined
 function highlight() {
@@ -399,12 +463,14 @@ watch(() => props.layers, () => { sync(); fit(); highlight(); scheduleRefresh() 
 watch(() => props.visible, () => { sync(); fit(); scheduleRefresh() })
 watch(() => props.selected, highlight)
 watch(
-  [() => props.globalFilter, () => props.layerFilters],
-  () => {
-    rebuildStaticLayers()
+  [() => props.globalFilter, () => props.layerFilters, () => props.activeCircleId, () => props.pickingOrigin],
+  ([gf, lf], [prevGf, prevLf]) => {
     syncRadiusOverlay()
-    if (props.globalFilter.autoFit) pendingFilterFit = true
-    scheduleRefresh()
+    if (gf !== prevGf || lf !== prevLf) {
+      rebuildStaticLayers()
+      if (props.globalFilter.autoFit && !props.suppressAutoFit) pendingFilterFit = true
+      scheduleRefresh()
+    }
   },
   { deep: true },
 )
@@ -415,7 +481,7 @@ watch(
     <div ref="el" class="map" role="region" aria-label="Map of layer points. Markers are keyboard focusable; press Enter to open a point or zoom into a cluster." />
     <div class="map-status" aria-live="polite">
       <p v-if="pickingOrigin" class="chipnote active-filter">
-        ⊕ Click anywhere on the map to set the radius origin in km.
+        ⊕ {{ addingCircle ? 'Click anywhere on the map to add another radius circle.' : 'Click anywhere on the map to set the radius origin in km.' }}
       </p>
       <p v-else-if="view.loading" class="chipnote">Loading points in view…</p>
       <p v-else-if="view.error" class="chipnote err" role="alert">
@@ -475,4 +541,7 @@ watch(
 .pt-active { transform: scale(1.35); box-shadow: 0 0 0 3px var(--color-accent-arctic-cyan); }
 .pt-diamond.pt-active { transform: rotate(45deg) scale(1.2); }
 .pt-triangle.pt-active { box-shadow: none; transform: scale(1.35); filter: drop-shadow(0 0 3px var(--color-accent-arctic-cyan)) drop-shadow(0 0 1px #fff); }
+.circle-tag { background: rgb(5 7 13 / 92%); border: 1px solid #7851a9; border-radius: 999px; color: #e2e8f0; font-family: var(--font-sans); font-size: 0.7rem; padding: 0.15rem 0.55rem; box-shadow: 0 2px 8px rgb(0 0 0 / 50%); white-space: nowrap; }
+.circle-tag::before { display: none; }
+.circle-tag-selected { border-color: var(--color-accent-arctic-cyan); color: var(--color-accent-arctic-cyan); font-weight: 600; }
 </style>

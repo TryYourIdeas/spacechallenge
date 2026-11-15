@@ -1,16 +1,26 @@
 <script setup lang="ts">
-import type { GlobalFilter, Layer, LayerFilter, SelectedPoint } from '~/types/layers'
+import type { GlobalFilter, Layer, LayerFilter, RadiusCircle, SelectedPoint } from '~/types/layers'
 import { defaultGlobalFilter, matchesGlobalFilter, matchesLayerFilter, regionCenter } from '~/utils/filters'
 
 const { indexState, indexError, metas, states, visible, toggle, reload, retryLayer, apiError, fetchClusters, fetchPoints, fetchPoint } = useLayers()
 const selected = shallowRef<SelectedPoint | null>(null)
 const form = ref<{ focus: () => void }>()
-const mapView = ref<{ fitFiltered: () => void; getMapCenter: () => { lat: number; lon: number } | null }>()
+const mapView = ref<{
+  fitFiltered: () => void
+  getMapCenter: () => { lat: number; lon: number } | null
+  getVisibleLayerPoints: (layerId: string) => Array<{ id: string; lat: number; lon: number; label: string }>
+}>()
 
 const globalFilter = ref<GlobalFilter>(defaultGlobalFilter())
 const layerFilters = ref<Record<string, LayerFilter>>({})
 const remoteCounts = ref<Record<string, number>>({})
 const pickingOrigin = ref(false)
+const addingCircle = ref(false)
+const activeCircleId = ref<string | null>(null)
+const circlesFromLayerId = ref<string | null>(null)
+const suppressAutoFit = ref(false)
+let circleSeq = 0
+const nextCircleId = () => `circle-${++circleSeq}`
 
 const readyLayers = computed<Layer[]>(() =>
   metas.value.flatMap((m) => {
@@ -19,53 +29,87 @@ const readyLayers = computed<Layer[]>(() =>
   }),
 )
 
+function syncPrimaryToCircle(g: GlobalFilter, c: RadiusCircle | undefined): GlobalFilter {
+  if (!c) {
+    return { ...g, distanceKm: null, originLat: null, originLon: null, originLabel: '' }
+  }
+  return { ...g, distanceKm: c.km, originLat: c.lat, originLon: c.lon, originLabel: c.label }
+}
+
+function upsertActiveCircle(g: GlobalFilter, lat: number, lon: number, label: string, km: number, asNew = false): GlobalFilter {
+  const existing = [...g.circles]
+  if (asNew || existing.length === 0) {
+    const id = nextCircleId()
+    const created: RadiusCircle = { id, lat, lon, km, label }
+    activeCircleId.value = id
+    return syncPrimaryToCircle({ ...g, circles: [...existing, created] }, created)
+  }
+  const targetId = activeCircleId.value && existing.some(c => c.id === activeCircleId.value)
+    ? activeCircleId.value
+    : existing[existing.length - 1]!.id
+  const updated = existing.map(c => (c.id === targetId ? { ...c, lat, lon, label, km } : c))
+  const active = updated.find(c => c.id === targetId)!
+  activeCircleId.value = targetId
+  return syncPrimaryToCircle({ ...g, circles: updated }, active)
+}
+
 function updateGlobalFilter(next: GlobalFilter) {
+  suppressAutoFit.value = false
+  if (next.circles.length === 0) circlesFromLayerId.value = null
   const prev = globalFilter.value
   const regionChanged = next.continent !== prev.continent || next.country !== prev.country
+  const syncEnabled = next.syncRegionCircle !== false
+  const syncJustEnabled = syncEnabled && prev.syncRegionCircle === false
 
-  if (regionChanged) {
+  if ((regionChanged && syncEnabled) || syncJustEnabled) {
     const rc = regionCenter(next.continent, next.country)
-    if (rc && (next.distanceKm !== null || next.originLat !== null)) {
-      next = { ...next, originLat: rc.lat, originLon: rc.lon, originLabel: rc.label }
+    if (rc && (next.distanceKm !== null || next.originLat !== null || next.circles.length > 0)) {
+      next = upsertActiveCircle(next, rc.lat, rc.lon, rc.label, next.distanceKm ?? 500)
     } else if (!rc && next.originLabel.endsWith(' Center')) {
       if (next.distanceKm !== null) {
         const mc = mapView.value?.getMapCenter() ?? { lat: 20, lon: 0 }
-        next = { ...next, originLat: mc.lat, originLon: mc.lon, originLabel: 'Map Center' }
+        next = upsertActiveCircle(next, mc.lat, mc.lon, 'Map Center', next.distanceKm)
       } else {
-        next = { ...next, originLat: null, originLon: null, originLabel: '' }
+        activeCircleId.value = null
+        next = syncPrimaryToCircle({ ...next, circles: [] }, undefined)
       }
     }
   }
 
-  if (next.distanceKm !== null && next.distanceKm > 0 && (next.originLat === null || next.originLon === null)) {
-    const rc = regionCenter(next.continent, next.country)
-    if (
-      selected.value &&
-      matchesGlobalFilter(selected.value.row, selected.value.fields, { ...next, distanceKm: null })
-    ) {
-      next = {
-        ...next,
-        originLat: selected.value.row.latitude,
-        originLon: selected.value.row.longitude,
-        originLabel: String(selected.value.row.name ?? selected.value.row.id),
+  if (next.distanceKm !== null && next.distanceKm > 0) {
+    if (next.originLat === null || next.originLon === null) {
+      const rc = regionCenter(next.continent, next.country)
+      if (
+        selected.value &&
+        matchesGlobalFilter(selected.value.row, selected.value.fields, { ...next, distanceKm: null, circles: [] })
+      ) {
+        next = upsertActiveCircle(
+          next,
+          selected.value.row.latitude,
+          selected.value.row.longitude,
+          String(selected.value.row.name ?? selected.value.row.id),
+          next.distanceKm,
+        )
+      } else if (rc) {
+        next = upsertActiveCircle(next, rc.lat, rc.lon, rc.label, next.distanceKm)
+      } else {
+        const mc = mapView.value?.getMapCenter() ?? { lat: 20, lon: 0 }
+        next = upsertActiveCircle(next, mc.lat, mc.lon, 'Map Center', next.distanceKm)
       }
-    } else if (rc) {
-      next = {
-        ...next,
-        originLat: rc.lat,
-        originLon: rc.lon,
-        originLabel: rc.label,
+    } else if (next.circles.length > 0 && next.distanceKm !== prev.distanceKm) {
+      if (circlesFromLayerId.value) {
+        const km = next.distanceKm
+        const updated = next.circles.map(c => ({ ...c, km }))
+        const active = updated.find(c => c.id === activeCircleId.value) ?? updated[updated.length - 1]
+        next = syncPrimaryToCircle({ ...next, circles: updated }, active)
+      } else {
+        next = upsertActiveCircle(next, next.originLat, next.originLon, next.originLabel, next.distanceKm)
       }
-    } else {
-      const mc = mapView.value?.getMapCenter() ?? { lat: 20, lon: 0 }
-      next = {
-        ...next,
-        originLat: mc.lat,
-        originLon: mc.lon,
-        originLabel: 'Map Center',
-      }
+    } else if (next.circles.length === 0) {
+      next = upsertActiveCircle(next, next.originLat, next.originLon, next.originLabel || 'Origin', next.distanceKm)
     }
   }
+
   globalFilter.value = next
   checkSelectionAgainstFilters()
 }
@@ -76,43 +120,90 @@ function updateLayerFilter(id: string, filter: LayerFilter) {
 }
 
 function resetAllFilters() {
+  suppressAutoFit.value = false
+  circlesFromLayerId.value = null
   globalFilter.value = defaultGlobalFilter()
   layerFilters.value = {}
   pickingOrigin.value = false
+  addingCircle.value = false
+  activeCircleId.value = null
 }
 
 function useSelectedOrigin() {
   if (!selected.value) return
+  suppressAutoFit.value = false
+  circlesFromLayerId.value = null
+  const asNew = addingCircle.value
   pickingOrigin.value = false
-  globalFilter.value = {
-    ...globalFilter.value,
-    originLat: selected.value.row.latitude,
-    originLon: selected.value.row.longitude,
-    originLabel: String(selected.value.row.name ?? selected.value.row.id),
-    distanceKm: globalFilter.value.distanceKm ?? 500,
-  }
+  addingCircle.value = false
+  globalFilter.value = upsertActiveCircle(
+    globalFilter.value,
+    selected.value.row.latitude,
+    selected.value.row.longitude,
+    String(selected.value.row.name ?? selected.value.row.id),
+    globalFilter.value.distanceKm ?? 500,
+    asNew,
+  )
+  checkSelectionAgainstFilters()
 }
 
 function useMapCenter() {
+  suppressAutoFit.value = false
+  circlesFromLayerId.value = null
+  const asNew = addingCircle.value
   pickingOrigin.value = false
+  addingCircle.value = false
   const mc = mapView.value?.getMapCenter() ?? { lat: 20, lon: 0 }
-  globalFilter.value = {
-    ...globalFilter.value,
-    originLat: mc.lat,
-    originLon: mc.lon,
-    originLabel: 'Map Center',
-    distanceKm: globalFilter.value.distanceKm ?? 500,
-  }
+  globalFilter.value = upsertActiveCircle(
+    globalFilter.value,
+    mc.lat,
+    mc.lon,
+    'Map Center',
+    globalFilter.value.distanceKm ?? 500,
+    asNew,
+  )
+  checkSelectionAgainstFilters()
 }
 
 function onPickOrigin(lat: number, lon: number) {
+  suppressAutoFit.value = false
+  circlesFromLayerId.value = null
+  const asNew = addingCircle.value
   pickingOrigin.value = false
-  globalFilter.value = {
-    ...globalFilter.value,
-    originLat: lat,
-    originLon: lon,
-    originLabel: `${lat.toFixed(3)}°, ${lon.toFixed(3)}°`,
-    distanceKm: globalFilter.value.distanceKm ?? 500,
+  addingCircle.value = false
+  globalFilter.value = upsertActiveCircle(
+    globalFilter.value,
+    lat,
+    lon,
+    `${lat.toFixed(3)}°, ${lon.toFixed(3)}°`,
+    globalFilter.value.distanceKm ?? 500,
+    asNew,
+  )
+  checkSelectionAgainstFilters()
+}
+
+function selectCircle(id: string) {
+  const target = globalFilter.value.circles.find(c => c.id === id)
+  if (!target) return
+  activeCircleId.value = id
+  globalFilter.value = syncPrimaryToCircle(globalFilter.value, target)
+}
+
+function removeCircle(id: string) {
+  const remaining = globalFilter.value.circles.filter(c => c.id !== id)
+  const nextActive = remaining.find(c => c.id === activeCircleId.value) ?? remaining[remaining.length - 1]
+  activeCircleId.value = nextActive?.id ?? null
+  globalFilter.value = syncPrimaryToCircle({ ...globalFilter.value, circles: remaining }, nextActive)
+  checkSelectionAgainstFilters()
+}
+
+function togglePickOrigin(asNew = false) {
+  if (pickingOrigin.value && addingCircle.value === asNew) {
+    pickingOrigin.value = false
+    addingCircle.value = false
+  } else {
+    addingCircle.value = asNew
+    pickingOrigin.value = true
   }
 }
 
@@ -155,12 +246,63 @@ async function loadDetail(point: SelectedPoint) {
 function clearSelection() {
   detail?.abort()
   selected.value = null
+  if (circlesFromLayerId.value) {
+    circlesFromLayerId.value = null
+    activeCircleId.value = null
+    suppressAutoFit.value = true
+    globalFilter.value = syncPrimaryToCircle({ ...globalFilter.value, circles: [] }, undefined)
+  }
 }
 onBeforeUnmount(() => detail?.abort())
+
+function applyLayerRadiusCircles(layer: Layer, clickedRow: { id: string; latitude: number; longitude: number; name?: string }) {
+  const km = globalFilter.value.distanceKm ?? 500
+  let sources: Array<{ id: string; lat: number; lon: number; label: string }> = []
+
+  if (!layer.remote && layer.rows.length > 0) {
+    sources = layer.rows.slice(0, 200).map(r => ({
+      id: r.id,
+      lat: r.latitude,
+      lon: r.longitude,
+      label: String(r.name ?? r.id),
+    }))
+  } else {
+    sources = mapView.value?.getVisibleLayerPoints(layer.id) ?? []
+    if (!sources.some(s => s.id === clickedRow.id)) {
+      sources.unshift({
+        id: clickedRow.id,
+        lat: clickedRow.latitude,
+        lon: clickedRow.longitude,
+        label: String(clickedRow.name ?? clickedRow.id),
+      })
+    }
+  }
+
+  if (sources.length === 0) return
+  const circles: RadiusCircle[] = sources.map(s => ({
+    id: `layer-${layer.id}-${s.id}`,
+    lat: s.lat,
+    lon: s.lon,
+    km,
+    label: s.label,
+  }))
+  const clickedId = `layer-${layer.id}-${clickedRow.id}`
+  const active = circles.find(c => c.id === clickedId) ?? circles[0]!
+  circlesFromLayerId.value = layer.id
+  activeCircleId.value = active.id
+  suppressAutoFit.value = true
+  globalFilter.value = syncPrimaryToCircle({ ...globalFilter.value, circles }, active)
+}
 
 async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
   if ((point.layer as Layer).remote) void loadDetail(point)
   else { detail?.abort(); selected.value = point }
+
+  const layerState = states.value[point.layer.id]
+  if (layerState?.status === 'ready') {
+    applyLayerRadiusCircles(layerState.layer, point.row)
+  }
+
   if (viaKeyboard) {
     await nextTick()
     form.value?.focus()
@@ -194,7 +336,9 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
         @reset-all-filters="resetAllFilters"
         @use-selected-origin="useSelectedOrigin"
         @use-map-center="useMapCenter"
-        @toggle-pick-origin="pickingOrigin = !pickingOrigin"
+        @toggle-pick-origin="togglePickOrigin"
+        @select-circle="selectCircle"
+        @remove-circle="removeCircle"
         @fit-filtered="mapView?.fitFiltered()"
       />
 
@@ -206,9 +350,9 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
         <MapView
           ref="mapView"
           :layers="readyLayers" :visible="visible" :selected="selected"
-          :global-filter="globalFilter" :layer-filters="layerFilters" :picking-origin="pickingOrigin"
+          :global-filter="globalFilter" :layer-filters="layerFilters" :picking-origin="pickingOrigin" :adding-circle="addingCircle" :active-circle-id="activeCircleId" :suppress-auto-fit="suppressAutoFit"
           :fetch-clusters="fetchClusters" :fetch-points="fetchPoints"
-          @select="onSelect" @pick-origin="onPickOrigin" @remote-counts="remoteCounts = $event"
+          @select="onSelect" @pick-origin="onPickOrigin" @select-circle="selectCircle" @remote-counts="remoteCounts = $event"
         />
       </ClientOnly>
     </main>

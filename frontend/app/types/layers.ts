@@ -58,6 +58,14 @@ export interface ClusterResponse {
   filteredBounds?: LatLngBoundsTuple | null
 }
 
+export interface RadiusCircle {
+  id: string
+  lat: number
+  lon: number
+  km: number
+  label: string
+}
+
 export interface GlobalFilter {
   continent: string
   country: string
@@ -65,6 +73,8 @@ export interface GlobalFilter {
   originLat: number | null
   originLon: number | null
   originLabel: string
+  circles: RadiusCircle[]
+  syncRegionCircle?: boolean
   autoFit: boolean
 }
 
