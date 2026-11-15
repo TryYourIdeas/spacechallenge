@@ -99,7 +99,12 @@ To publish a change:
    ```
 
    Both should return JSON, not the HTML page. HTML means the deployment is an
-   old or static build without the server routes.
+   old or static build without the server routes. Verified on 2026-11-15 after
+   pushing commit `b648080`: `/healthz` returned `{"status":"ok"}`, `/readyz`
+   returned `{"status":"ready"}` and `/api/layers` listed the imported layers.
+   A failed deployment is not an error page: the previous deployment stays live,
+   so always confirm the new one reached **Ready**; see
+   [troubleshooting.md](troubleshooting.md).
 
 Vercel only presents data. Migrations and CSV imports run from your machine
 (see [Add a CSV layer](#add-a-csv-layer) and
@@ -121,4 +126,4 @@ Deployment Protection if the data is private.
 | Browser CORS errors on a separate front end | Add its origin to `CORS_ORIGINS` |
 | `scripts/import_csv.sh` fails | Read its message; check the file has latitude and longitude columns and `DATABASE_URL` is reachable |
 | Imported layer missing | Reload the page; confirm the script printed `Imported N rows` |
-| Vercel site shows the page but `/readyz` or `/api/layers` return HTML or 404 | The live deployment is stale or static: check the latest deployment in Vercel and its build log |
+| Vercel site shows the page but `/readyz` or `/api/layers` return HTML or 404 | The live deployment is stale or static; see [troubleshooting.md](troubleshooting.md) |
