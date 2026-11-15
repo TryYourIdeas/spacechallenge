@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Layer, SelectedPoint } from '~/types/layers'
 
-const { indexState, indexError, metas, states, visible, toggle, reload, retryLayer, tasks, apiError, eventsOnline, files, filesState, filesError, importError, loadFiles, startImport, removeLayer } = useLayers()
+const { indexState, indexError, metas, states, visible, toggle, reload, retryLayer, tasks, apiError, eventsOnline, files, filesState, filesError, importError, loadFiles, startImport, removeLayer, fetchClusters, fetchPoints, fetchPoint } = useLayers()
 const selected = shallowRef<SelectedPoint | null>(null)
 const form = ref<{ focus: () => void }>()
 
@@ -14,11 +14,35 @@ const readyLayers = computed<Layer[]>(() =>
 
 // Drop the selection if its layer gets hidden, so the form never shows a point the map hides.
 watch(visible, (v) => {
-  if (selected.value && !v.has(selected.value.layer.id)) selected.value = null
+  if (selected.value && !v.has(selected.value.layer.id)) clearSelection()
 })
 
+// Points of server layers arrive without their field values; fetch them once selected.
+let detail: AbortController | undefined
+
+async function loadDetail(point: SelectedPoint) {
+  detail?.abort()
+  const ctl = (detail = new AbortController())
+  selected.value = { ...point, status: 'loading' }
+  try {
+    const row = await fetchPoint(point.layer.id, point.row.id, ctl.signal)
+    if (ctl.signal.aborted) return
+    selected.value = { layer: point.layer, fields: point.fields, row }
+  } catch (e) {
+    if (ctl.signal.aborted) return
+    selected.value = { ...point, status: 'error', error: e instanceof Error ? e.message : 'Request failed' }
+  }
+}
+
+function clearSelection() {
+  detail?.abort()
+  selected.value = null
+}
+onBeforeUnmount(() => detail?.abort())
+
 async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
-  selected.value = point
+  if ((point.layer as Layer).remote) void loadDetail(point)
+  else { detail?.abort(); selected.value = point }
   if (viaKeyboard) {
     await nextTick()
     form.value?.focus()
@@ -49,12 +73,15 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
         @load-files="loadFiles" @start-import="startImport"
       />
 
-      <PointForm ref="form" :point="selected" @close="selected = null" />
+      <PointForm ref="form" :point="selected" @close="clearSelection" @retry="selected && loadDetail(selected)" />
     </aside>
 
     <main class="main">
       <ClientOnly>
-        <MapView :layers="readyLayers" :visible="visible" :selected="selected" @select="onSelect" />
+        <MapView
+          :layers="readyLayers" :visible="visible" :selected="selected"
+          :fetch-clusters="fetchClusters" :fetch-points="fetchPoints" @select="onSelect"
+        />
       </ClientOnly>
     </main>
   </div>

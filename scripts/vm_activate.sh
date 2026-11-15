@@ -18,7 +18,7 @@ fi
 printf '%s\n' "$project" > "$identity"
 if [[ ! -e "$environment" ]]; then
   password="$(openssl rand -hex 24)"
-  sed '/^POSTGRES_PASSWORD=/d' "$root/releases/$release/docker/.env.example" > "$environment"
+  sed '/^POSTGRES_PASSWORD=/d' "$root/releases/$release/backend/docker/.env.example" > "$environment"
   printf '\nPOSTGRES_PASSWORD=%s\n' "$password" >> "$environment"
   unset password
 fi
@@ -29,8 +29,8 @@ trap 'rm -f -- "$temporary"' EXIT
 sed '/^BACKEND_DOMAIN=/d' "$environment" > "$temporary"
 printf '\nBACKEND_DOMAIN=%s\n' "$domain" >> "$temporary"
 mv -- "$temporary" "$environment"
-ln -s "$environment" "$root/releases/$release/docker/.env"
-compose=(env COMPOSE_PROJECT_NAME="$project" bash "$root/releases/$release/docker/compose.sh")
+ln -s "$environment" "$root/releases/$release/backend/docker/.env"
+compose=(env COMPOSE_PROJECT_NAME="$project" bash "$root/releases/$release/backend/docker/compose.sh")
 export BACKEND_DEPLOYMENT=vm
 "${compose[@]}" config --quiet
 "${compose[@]}" pull --ignore-buildable

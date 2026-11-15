@@ -3,7 +3,7 @@ import type { SelectedPoint } from '~/types/layers'
 import { formatValue } from '~/utils/layers'
 
 const props = defineProps<{ point: SelectedPoint | null }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; retry: [] }>()
 
 const heading = ref<HTMLElement>()
 defineExpose({ focus: () => heading.value?.focus() })
@@ -25,7 +25,13 @@ const uid = useId()
       </p>
       <p class="title">{{ title }}</p>
 
-      <div v-for="f in point.fields" :key="f.key" class="field">
+      <p v-if="point.status === 'loading'" role="status" class="muted loading">Loading point data…</p>
+      <div v-else-if="point.status === 'error'" role="alert" class="problem">
+        <p>Could not load this point: {{ point.error }}</p>
+        <button type="button" @click="emit('retry')">Retry</button>
+      </div>
+
+      <div v-for="f in (point.status ? [] : point.fields)" :key="f.key" class="field">
         <label :for="`${uid}-${f.key}`">{{ f.label }}</label>
         <input :id="`${uid}-${f.key}`" :value="formatValue(f, point.row[f.key])" readonly>
       </div>
@@ -51,6 +57,9 @@ const uid = useId()
 h2 { margin: 0 0 0.75rem; font-size: 1.0625rem; }
 h2:focus-visible { border-radius: 4px; }
 .muted { color: var(--color-text-secondary); margin: 0; }
+.loading { margin-bottom: 0.75rem; }
+.problem { color: var(--color-danger); margin-bottom: 0.75rem; }
+.problem p { margin: 0 0 0.5rem; }
 .layer { margin: 0; color: var(--color-text-secondary); font-size: 0.8125rem; display: flex; align-items: center; gap: 0.5rem; }
 .chip { width: 10px; height: 10px; border-radius: 50%; background: var(--pt); }
 .title { margin: 0.25rem 0 1rem; font-size: 1.25rem; font-weight: 600; overflow-wrap: anywhere; }

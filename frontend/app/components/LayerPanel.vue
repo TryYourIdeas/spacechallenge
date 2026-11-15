@@ -20,6 +20,15 @@ const emit = defineEmits<{
 }>()
 
 const picking = ref(false)
+const confirming = ref<string | null>(null)
+const importBtn = ref<HTMLButtonElement>()
+
+async function remove(id: string) {
+  confirming.value = null
+  emit('remove', id)
+  await nextTick()
+  importBtn.value?.focus() // the removed layer's controls are gone; keep keyboard focus in the panel
+}
 
 function togglePicker() {
   picking.value = !picking.value
@@ -59,7 +68,7 @@ function taskText(t: ServerTask): string {
         </label>
         <span class="status" role="status">
           <template v-if="states[m.id]?.status === 'ready'">
-            {{ (states[m.id] as any).layer.rows.length }} points<template v-if="(states[m.id] as any).layer.skipped">
+            {{ ((states[m.id] as any).layer.remote?.rowCount ?? (states[m.id] as any).layer.rows.length).toLocaleString('en-US') }} points<template v-if="(states[m.id] as any).layer.skipped">
               , {{ (states[m.id] as any).layer.skipped }} skipped (invalid coordinates)</template>
           </template>
           <template v-else-if="states[m.id]?.status === 'error'">
@@ -69,11 +78,18 @@ function taskText(t: ServerTask): string {
           <template v-else>Loading…</template>
         </span>
         <p v-if="m.description" class="muted desc">{{ m.description }}</p>
-        <button v-if="m.imported" type="button" class="remove" :aria-label="`Remove layer ${m.label}`" @click="emit('remove', m.id)">Remove</button>
+        <div class="actions">
+          <template v-if="confirming === m.id">
+            <span class="warn" role="alert">Delete {{ m.label }} permanently?</span>
+            <button type="button" class="danger" @click="remove(m.id)">Delete</button>
+            <button type="button" @click="confirming = null">Cancel</button>
+          </template>
+          <button v-else type="button" :aria-label="`Remove layer ${m.label}`" @click="m.imported ? (confirming = m.id) : remove(m.id)">Remove</button>
+        </div>
       </li>
     </ul>
     <div class="import">
-      <button type="button" :aria-expanded="picking" aria-controls="file-picker" @click="togglePicker">
+      <button ref="importBtn" type="button" :aria-expanded="picking" aria-controls="file-picker" @click="togglePicker">
         Import CSV…
       </button>
       <p class="muted hint">Choose a file from the server's data directory.</p>
@@ -132,7 +148,9 @@ input { width: 18px; height: 18px; accent-color: var(--color-accent-arctic-cyan)
 button { background: var(--color-surface-raised); color: var(--color-text-primary); border: 1px solid var(--color-accent-royal-purple); border-radius: 6px; padding: 0.25rem 0.75rem; min-height: 32px; cursor: pointer; font: inherit; }
 .import { margin-top: 1rem; display: grid; gap: 0.4rem; justify-items: start; }
 .hint { margin: 0; font-size: 0.8125rem; }
-.remove { margin: 0.25rem 0 0 2.1rem; }
+.actions { margin: 0.25rem 0 0 2.1rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.warn { font-size: 0.8125rem; color: var(--color-danger); }
+.danger { border-color: var(--color-danger); }
 .jobs { margin-top: 0.5rem; gap: 0.6rem; width: 100%; }
 .picker { width: 100%; max-height: 14rem; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.5rem; background: var(--color-bg-deep-space); }
 .picker ul { gap: 0.25rem; }

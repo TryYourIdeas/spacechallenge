@@ -6,13 +6,20 @@ The scripts do not purchase or provision a VM or modify your DNS/firewall.
 
 ## Frontend → Cloudflare Pages
 
-Build a static site or SPA with your team's chosen toolchain, then upload only
-its output directory:
+The frontend is a Nuxt SPA. `npm run build` (`nuxt generate`) in `frontend/`
+writes a static site to `frontend/.output/public`. Set `NUXT_PUBLIC_API_BASE` at
+build time to the API's HTTPS origin (no trailing slash), then upload only that
+output directory:
 
 ```sh
-FRONTEND_OUTPUT_DIR=frontend/dist PAGES_PROJECT_NAME=my-team \
+NUXT_PUBLIC_API_BASE=https://api.example.com \
+FRONTEND_BUILD_COMMAND='npm run build' \
+FRONTEND_OUTPUT_DIR=frontend/.output/public PAGES_PROJECT_NAME=my-team \
   bash scripts/deploy_frontend.sh
 ```
+
+Without Pages, the `app` container also serves the SPA from the same origin as
+the API (`NUXT_PUBLIC_API_BASE` empty).
 
 The output directory is relative to the project root or absolute and must contain
 `index.html`. Optionally set `FRONTEND_BUILD_COMMAND` to run a build command from
@@ -68,21 +75,24 @@ Optional variables:
   different name to protect volume identity. Set it explicitly in CI, where
   checkout directory names can differ from developer machines.
 - `BACKEND_SSH_PORT`: optional SSH port; otherwise SSH config supplies it.
-- `BACKEND_HEALTH_PATH`: API endpoint returning HTTP 2xx, default `/`.
+- `BACKEND_HEALTH_PATH`: endpoint returning HTTP 2xx, default `/`; `/readyz` also checks PostgreSQL and Redis.
 
 The script uploads **only backend source**, excluding laptop `.env` files,
 local Compose overrides, Git metadata, and common dependency caches. It creates
 a unique source release, builds images on the VM for that machine's architecture,
-and starts every Compose service with `--wait`. Your API Dockerfile chooses
-its own language and dependencies; local application compilers are unnecessary.
-Keep build inputs in `backend/`. Private images need registry authentication on
+and starts every Compose service with `--wait`. The `app` and `worker` services
+share one image built from the Nuxt project in `frontend/` by
+`frontend/Dockerfile`; local application compilers are unnecessary.
+The script uploads both `backend/` and `frontend/` (without `node_modules`,
+`.nuxt`, `.output`, or `.env*`). Private images need registry authentication on
 the VM; image-only services are pulled before startup.
 
-The hosted topology adds Caddy on ports 80/443 and proxies to `api` over the
+The hosted topology adds Caddy on ports 80/443 and proxies to `app` over the
 private Docker network. PostgreSQL and Redis use service DNS and have no public
-ports. The local API port remains loopback-only for local development. The
-included API is still a placeholder; add your real API and Dockerfile to
-`backend/services/api/` and update the tracked Compose definition.
+ports. The local app port remains loopback-only for local development. The API runs
+inside the `app` service (`frontend/server/`); the `worker` service consumes the
+import queue. Both apply database migrations at startup. See
+`docs/architecture/ARCHITECTURE.md`.
 
 After the services start, deployment checks the API's HTTPS health URL. Only
 then does `current` point to the successful release. A failed deploy returns a
@@ -128,10 +138,10 @@ checking bind mounts and retaining backups. Do not remove shared state or volume
 
 ## Connect frontend to backend
 
-Configure your frontend to call `https://api.example.com` using its chosen
-framework's settings. Configure API CORS for the exact Pages origin, such as
+Build your frontend with `NUXT_PUBLIC_API_BASE=https://api.example.com`. Set
+`CORS_ORIGINS` in `shared/backend.env` to the exact Pages origin, such as
 `https://my-team.pages.dev`, and implement authentication/authorization in your
-API. Do not expose database credentials to frontend builds. Caddy handles HTTPS
+API (none exists yet: import and delete routes are unauthenticated). Do not expose database credentials to frontend builds. Caddy handles HTTPS
 and proxying; it does not add authentication or wildcard CORS.
 
 For server operations, use the last successful source directory and fixed name:

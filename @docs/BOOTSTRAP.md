@@ -7,18 +7,19 @@ Bootstrap generated these files only. No application dependencies were installed
 no services were started, and no hosting was provisioned or deployed. The helper
 scripts are optional next steps for your team to configure and run separately.
 
-- Frontend and API are intentionally unimplemented; choose your own languages.
+- The frontend (Nuxt SPA) and API (Nitro server) are one project in `frontend/`;
+  see `docs/architecture/ARCHITECTURE.md`.
 - `bash scripts/start.sh` opens the project menu. npm is an optional shortcut.
 - Docker with Compose is required only when you start the local backend.
 - `backend/docker/compose.sh` is the shared Compose entry point and creates a
   local `.env` from the example if missing. Keep `.env` out of version control.
-- The default HTTP response at `http://localhost:8080` is an infrastructure
-  placeholder. Replace it with your API image or tracked build configuration.
+- `http://localhost:8080` is the `app` service (SPA and `/api`), built from
+  `frontend/` by `frontend/Dockerfile`; a `worker` service runs imports.
 - PostgreSQL enables pgvector when a new volume is initialized. Store later
   schema changes as forward migrations; record decisions in `SCHEMA.md`.
 - Use `postgres:5432` and `redis://queue:6379/0` inside containers. Host-side
   frontend clients talk to the API, never directly to these services.
-- Choose the build tools; deploy scripts target Cloudflare Pages and a persistent
+- Deploy scripts target Cloudflare Pages and a persistent
   Docker VM. Read `DEPLOYMENT.md` for SSH, HTTPS, server secrets, and backups.
 
 The Compose credentials are local development defaults. Configure actual

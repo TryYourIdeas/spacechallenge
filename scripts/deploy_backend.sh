@@ -41,7 +41,7 @@ if [[ -n "${BACKEND_SSH_PORT:-}" ]]; then
 fi
 if [[ ${1:-} == --dry-run ]]; then
   printf 'Host: %s\nDirectory: %s\nCompose project: %s\nAPI: https://%s%s\n' "$host" "$directory" "$project" "$domain" "$health_path"
-  printf 'Plan: upload backend source, preserve server secrets and volumes, build/start all services, verify HTTPS.\n'
+  printf 'Plan: upload backend Docker definitions and the Nuxt app, preserve server secrets and volumes, build/start all services, verify HTTPS.\n'
   exit 0
 fi
 for dependency in ssh rsync; do command -v "$dependency" >/dev/null 2>&1 || fail "install $dependency first"; done
@@ -59,11 +59,15 @@ mkdir -p -- "$1/shared" "$1/releases/$3"
 chmod 700 "$1/shared"
 PREPARE
 printf -v transport '%q ' ssh "${ssh_options[@]}"
-rsync -az -e "$transport" \
-  --include=.env.example --exclude='.env*' --exclude='.dev.vars*' \
-  --exclude=.git/ --exclude=node_modules/ --exclude=.venv/ --exclude=__pycache__/ \
-  --exclude=compose.local.yaml \
-  "$PROJECT_ROOT/backend/" "$host:$directory/releases/$release/"
+# backend/ holds the Docker definitions; frontend/ is the Nuxt app (SPA, API, worker) they build.
+for part in backend frontend; do
+  rsync -az -e "$transport" \
+    --include=.env.example --exclude='.env*' --exclude='.dev.vars*' \
+    --exclude=.git/ --exclude=node_modules/ --exclude=.venv/ --exclude=__pycache__/ \
+    --exclude=.nuxt/ --exclude=.output/ --exclude=dist/ \
+    --exclude=compose.local.yaml \
+    "$PROJECT_ROOT/$part/" "$host:$directory/releases/$release/$part/"
+done
 # Source releases change; server secrets and project-scoped volumes stay stable.
 # shellcheck disable=SC2029 # Same validated command; stdin carries the remote script.
 ssh "${ssh_options[@]}" "$host" "$remote" < "$PROJECT_ROOT/scripts/vm_activate.sh"

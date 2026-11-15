@@ -18,11 +18,20 @@ documented ownership; do not guess.
 
 ## Architecture and ownership
 
-`frontend/` → API (`backend/services/api/`) → PostgreSQL + pgvector
+`frontend/` (Nuxt SPA, `frontend/app/`) → API (Nitro server in the same Nuxt
+project, `frontend/server/`) → PostgreSQL + pgvector
 (`backend/services/database/`) and Redis (`backend/services/queue/`). Browsers
 talk only to the API. The API owns auth, validation, transactions, queue
 submission, and result delivery. PostgreSQL is the system of record; Redis is
-transport and must not silently replace durable storage.
+transport and must not silently replace durable storage. See
+`docs/architecture/ARCHITECTURE.md` for the full picture.
+
+- One image, built from `frontend/` by `frontend/Dockerfile`, runs as
+  two Compose services: `app` (`APP_ROLE=web`: SPA, `/api`, SSE, health routes)
+  and `worker` (`APP_ROLE=worker`: BullMQ import consumer). API and worker code
+  lives in `frontend/server/`; there is no separate API directory under `backend/`.
+- The app applies `backend/services/database/migrations/` at startup (advisory
+  lock, recorded in `schema_migrations`).
 
 - `backend/docker/compose.yaml` is tracked shared topology.
 - `backend/docker/compose.local.yaml` is an ignored developer override; never

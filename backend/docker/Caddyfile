@@ -1,3 +1,11 @@
 {$BACKEND_DOMAIN} {
-    reverse_proxy api:{$API_CONTAINER_PORT}
+    # JSON layer tables are large; compress them. Event streams and static assets are left alone.
+    encode {
+        gzip
+        zstd
+        match {
+            header Content-Type application/json*
+        }
+    }
+    reverse_proxy app:{$APP_CONTAINER_PORT}
 }

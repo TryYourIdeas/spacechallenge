@@ -1,22 +1,32 @@
 # spacechallenge
 
-A language-agnostic project workspace. Choose your frontend and API languages
-and frameworks; the directories are ready for your code.
+Layer Explorer: a Nuxt 4 / Vue 3 SPA that shows point layers on a Leaflet map.
+Built-in layers are static JSON; CSV files from the server's data directory can
+be imported asynchronously into PostgreSQL and streamed to the browser over
+Server-Sent Events.
 
-The local backend includes an HTTP placeholder, PostgreSQL with pgvector, and
-Redis. No application frontend or API has been implemented yet.
+- `frontend/app/` is the SPA; `frontend/server/` is the Nitro API and the import
+  worker code (one Nuxt project, one Docker image).
+- `backend/` holds the Docker Compose topology: `app` (SPA + API), `worker`,
+  PostgreSQL with pgvector, and Redis (BullMQ queue).
+- `data/` holds the CSV files offered for import.
+
+See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for
+the architecture.
 
 ## Get started
 
-1. Add your frontend in `frontend/` and your API in `backend/services/api/`.
-2. With Docker and Compose v2 running, start the local infrastructure:
-   `./backend/docker/compose.sh up --detach --wait`.
-3. Visit `http://localhost:8080` to see the HTTP placeholder.
+1. With Docker and Compose v2 running, start the stack:
+   `./backend/docker/compose.sh up --build --detach --wait`.
+2. Open `http://localhost:8080` (the `app` service serves the SPA and `/api`).
+3. For UI work, run `npm install && npm run dev` in `frontend/`; it needs
+   `DATABASE_URL` and `QUEUE_URL` for the API routes, otherwise the API disables
+   itself and static layers still work.
 4. Use `bash scripts/start.sh` for the interactive project menu. If Node/npm is
    already installed, `npm start` opens the same menu; npm is optional.
 
-See [backend/README.md](backend/README.md) to connect your application, and
-[@docs/BOOTSTRAP.md](@docs/BOOTSTRAP.md) for setup and next steps.
+See [backend/README.md](backend/README.md), [frontend/README.md](frontend/README.md)
+and [@docs/BOOTSTRAP.md](@docs/BOOTSTRAP.md) for details.
 
 ## Deploy
 

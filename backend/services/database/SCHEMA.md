@@ -45,5 +45,19 @@ An import reads a CSV from the server's data directory and a worker loads it.
   with range CHECKs, optional `name`, and `data` (jsonb) holding every column.
   Deleting a layer cascades to its points; the task row stays as history.
 
+## Spatial index and viewport clustering (migration `0003`)
+
+PostGIS is enabled by migration (`CREATE EXTENSION IF NOT EXISTS postgis`, plus
+`btree_gist`), because `init/` only runs for a new volume; the image already
+ships both. `layer_points.geom geometry(Point, 4326)` is a **generated stored
+column** from `longitude`/`latitude`, so it is backfilled for existing rows and can
+never disagree with them. Index: `layer_points_geom_idx` — GiST on `(layer_id,
+geom)`; viewport queries use `geom && ST_MakeEnvelope(...)` and read only one
+layer's entries. Clustering groups with `ST_SnapToGrid(geom, cell)` per request
+(no stored clusters, nothing to refresh; deleting a layer cascades as before).
+Measured on 120k points: whole-world clustering about 120 ms, a regional viewport
+about 6 ms in the database. Coordinates stay plain doubles in the API; there are no
+geography/distance features yet. No vector columns are involved.
+
 Import is a single transaction (layer + points + task `done`), so a failed or
 crashed attempt leaves no partial layer. No vector columns are involved.

@@ -2,9 +2,10 @@
 
 This directory is a Docker Compose application made of PostgreSQL, Redis and one application image run as two services:
 
-- `api` and `worker` are built from `services/api` (Node + Fastify): the HTTP API
-  (including Server-Sent Events) and the asynchronous CSV import worker, which
-  reads files from `DATA_DIR` (mounted read-only). See `services/api/README.md`.
+- `app` and `worker` are built from the Nuxt project in `../frontend` (Docker
+  definition in `../frontend/Dockerfile`): `app` serves the SPA, the HTTP API and
+  Server-Sent Events; `worker` runs the asynchronous CSV imports and reads files
+  from `DATA_DIR` (mounted read-only). The application code is in `frontend/server/`.
 - `postgres` is PostgreSQL with the `pgvector` extension enabled.
 - `queue` is Redis, a small queue/broker suitable for background work.
 
@@ -23,7 +24,7 @@ Docker Compose subcommands:
 
 ```sh
 ./backend/docker/compose.sh ps
-./backend/docker/compose.sh logs --follow api
+./backend/docker/compose.sh logs --follow app
 ```
 
 Database initialization SQL belongs in `services/database/init/`; versioned

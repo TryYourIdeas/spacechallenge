@@ -1,5 +1,5 @@
-import type { DataFile, Layer, LayerMeta, ServerTask } from '~/types/layers'
-import { parseLayer, parseLayerIndex } from '~/utils/layers'
+import type { ClusterResponse, DataFile, Layer, LayerMeta, LayerRow, PointSummary, ServerTask } from '~/types/layers'
+import { parseClusterResponse, parseLayer, parseLayerIndex, parsePointList, parsePointRow, parseRemoteLayer } from '~/utils/layers'
 
 export type LayerState =
   | { status: 'loading' }
@@ -98,17 +98,36 @@ export function useLayers() {
     const res = await fetch(apiBase + path, init)
     if (!res.ok) {
       let msg = `Request failed (${res.status})`
-      try { const b = await res.json(); if (typeof b?.error === 'string') msg = b.error } catch { /* keep default */ }
+      try { const b = await res.json(); const text = b?.message ?? b?.error; if (typeof text === 'string') msg = text } catch { /* keep default */ }
       throw new Error(msg)
     }
     return res
   }
 
+  /** Server layers load a summary only; their points are fetched per viewport (see the three functions below). */
   async function loadServerLayer(meta: LayerMeta, signal: AbortSignal) {
     const res = await api(`/api/layers/${meta.id}`, { signal })
-    const layer = parseLayer(meta, await res.json())
+    const layer = parseRemoteLayer(meta, await res.json())
     if (signal.aborted) return
     setState(meta.id, { status: 'ready', layer })
+  }
+
+  /** Grid-clustered points of a server layer inside `bbox` ("west,south,east,north") at `zoom`. */
+  async function fetchClusters(id: string, bbox: string, zoom: number, signal: AbortSignal): Promise<ClusterResponse> {
+    const res = await api(`/api/layers/${id}/clusters?bbox=${encodeURIComponent(bbox)}&zoom=${zoom}`, { signal })
+    return parseClusterResponse(await res.json())
+  }
+
+  /** Individual points inside a small box, for clusters that zooming cannot split. */
+  async function fetchPoints(id: string, bbox: string, signal: AbortSignal): Promise<{ points: PointSummary[]; truncated: boolean }> {
+    const res = await api(`/api/layers/${id}/points?bbox=${encodeURIComponent(bbox)}`, { signal })
+    return parsePointList(await res.json())
+  }
+
+  /** Every column of one server-layer point. */
+  async function fetchPoint(id: string, rowId: string, signal?: AbortSignal): Promise<LayerRow> {
+    const res = await api(`/api/layers/${id}/points/${encodeURIComponent(rowId)}`, { signal })
+    return parsePointRow(await res.json())
   }
 
   function showServerLayer(meta: LayerMeta) {
@@ -188,12 +207,16 @@ export function useLayers() {
     }
   }
 
+  /** Imported layers are deleted on the server; built-in ones are only dropped from this session. */
   async function removeLayer(id: string) {
-    try {
-      await api(`/api/layers/${id}`, { method: 'DELETE' })
-    } catch (e) {
-      apiError.value = `Could not remove the layer: ${e instanceof Error ? e.message : 'unknown error'}`
-      return
+    if (metas.value.find(m => m.id === id)?.imported) {
+      try {
+        await api(`/api/layers/${id}`, { method: 'DELETE' })
+      } catch (e) {
+        apiError.value = `Could not remove the layer: ${e instanceof Error ? e.message : 'unknown error'}`
+        return
+      }
+      apiError.value = ''
     }
     metas.value = metas.value.filter(m => m.id !== id)
     const { [id]: _gone, ...rest } = states.value
@@ -206,5 +229,5 @@ export function useLayers() {
   onMounted(load)
   onBeforeUnmount(() => { controller?.abort(); events?.close() })
 
-  return { indexState, indexError, metas, states, visible, toggle, reload: load, retryLayer, tasks, apiError, eventsOnline, files, filesState, filesError, importError, loadFiles, startImport, removeLayer }
+  return { indexState, indexError, metas, states, visible, toggle, reload: load, retryLayer, tasks, apiError, eventsOnline, files, filesState, filesError, importError, loadFiles, startImport, removeLayer, fetchClusters, fetchPoints, fetchPoint }
 }

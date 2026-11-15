@@ -1,4 +1,4 @@
-import type { FieldType, Layer, LayerField, LayerMeta, LayerRow } from '~/types/layers'
+import type { ClusterItem, ClusterResponse, PointSummary, FieldType, LatLngBoundsTuple, Layer, LayerField, LayerMeta, LayerRow } from '~/types/layers'
 
 const FIELD_TYPES: FieldType[] = ['string', 'number', 'date']
 const SHAPES: LayerMeta['shape'][] = ['circle', 'square', 'diamond', 'triangle']
@@ -40,11 +40,8 @@ export function parseLayerIndex(raw: unknown): LayerMeta[] {
   })
 }
 
-export function parseLayer(meta: LayerMeta, raw: unknown): Layer {
-  if (!isRecord(raw) || !Array.isArray(raw.fields) || !Array.isArray(raw.rows)) {
-    throw new Error(`Table for "${meta.id}" must contain "fields" and "rows" arrays`)
-  }
-  const fields: LayerField[] = raw.fields.map((f, i) => {
+function parseFields(meta: LayerMeta, raw: unknown[]): LayerField[] {
+  return raw.map((f, i) => {
     if (!isRecord(f)) throw new Error(`Field ${i} of "${meta.id}" must be an object`)
     const type = FIELD_TYPES.includes(f.type as never) ? (f.type as FieldType) : 'string'
     return {
@@ -54,6 +51,68 @@ export function parseLayer(meta: LayerMeta, raw: unknown): Layer {
       ...(typeof f.unit === 'string' ? { unit: f.unit } : {}),
     }
   })
+}
+
+const isBounds = (b: unknown): b is LatLngBoundsTuple =>
+  Array.isArray(b) && b.length === 2 && b.every(p => Array.isArray(p) && p.length === 2 && p.every(n => typeof n === 'number' && Number.isFinite(n)))
+
+/** A layer stored on the server: columns and a summary only. Its points arrive per viewport. */
+export function parseRemoteLayer(meta: LayerMeta, raw: unknown): Layer {
+  if (!isRecord(raw) || !Array.isArray(raw.fields)) throw new Error(`Summary for "${meta.id}" must contain a "fields" array`)
+  if (typeof raw.rowCount !== 'number' || !Number.isFinite(raw.rowCount)) throw new Error(`Summary for "${meta.id}" needs a numeric "rowCount"`)
+  if (raw.bounds !== null && !isBounds(raw.bounds)) throw new Error(`Summary for "${meta.id}" has invalid "bounds"`)
+  return {
+    ...meta,
+    fields: parseFields(meta, raw.fields),
+    rows: [],
+    skipped: typeof raw.skipped === 'number' ? raw.skipped : 0,
+    remote: { rowCount: raw.rowCount, bounds: raw.bounds },
+  }
+}
+
+/** Validates a clusters response. Malformed items are dropped so one bad cell cannot blank the map. */
+export function parseClusterResponse(raw: unknown): ClusterResponse {
+  if (!isRecord(raw) || !Array.isArray(raw.items)) throw new Error('Cluster response must contain an "items" array')
+  const items: ClusterItem[] = []
+  for (const it of raw.items) {
+    if (!isRecord(it) || typeof it.count !== 'number' || it.count < 1) continue
+    if (!isValidCoordinate(it.latitude, it.longitude) || !isBounds(it.bounds)) continue
+    if (it.count === 1 && (typeof it.id !== 'string' || it.id === '')) continue
+    items.push({
+      count: it.count, latitude: it.latitude as number, longitude: it.longitude as number, bounds: it.bounds,
+      ...(it.count === 1 ? { id: it.id as string } : {}),
+      ...(typeof it.name === 'string' && it.name ? { name: it.name } : {}),
+    })
+  }
+  return { items, truncated: raw.truncated === true }
+}
+
+export function parsePointList(raw: unknown): { points: PointSummary[]; truncated: boolean } {
+  if (!isRecord(raw) || !Array.isArray(raw.points)) throw new Error('Point list must contain a "points" array')
+  const points: PointSummary[] = []
+  for (const p of raw.points) {
+    if (!isRecord(p) || typeof p.id !== 'string' || !isValidCoordinate(p.latitude, p.longitude)) continue
+    points.push({
+      id: p.id, latitude: p.latitude as number, longitude: p.longitude as number,
+      ...(typeof p.name === 'string' && p.name ? { name: p.name } : {}),
+    })
+  }
+  return { points, truncated: raw.truncated === true }
+}
+
+/** One full point row as returned by `/api/layers/:id/points/:row`. */
+export function parsePointRow(raw: unknown): LayerRow {
+  if (!isRecord(raw) || !isValidCoordinate(raw.latitude, raw.longitude) || raw.id == null) {
+    throw new Error('Point data is not valid')
+  }
+  return { ...(raw as Record<string, string | number | null>), id: String(raw.id) } as LayerRow
+}
+
+export function parseLayer(meta: LayerMeta, raw: unknown): Layer {
+  if (!isRecord(raw) || !Array.isArray(raw.fields) || !Array.isArray(raw.rows)) {
+    throw new Error(`Table for "${meta.id}" must contain "fields" and "rows" arrays`)
+  }
+  const fields = parseFields(meta, raw.fields)
   const rows: LayerRow[] = []
   let skipped = 0
   const ids = new Set<string>()

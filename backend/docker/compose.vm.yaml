@@ -1,16 +1,16 @@
 # Hosted Docker topology. All app services use ordinary private Docker DNS.
 services:
-  api:
+  app:
     ports: !reset []
   caddy:
     image: ${CADDY_IMAGE:-caddy:2-alpine}
     restart: unless-stopped
     depends_on:
-      api:
-        condition: service_started
+      app:
+        condition: service_healthy
     environment:
       BACKEND_DOMAIN: ${BACKEND_DOMAIN:?Set BACKEND_DOMAIN to the API hostname}
-      API_CONTAINER_PORT: ${API_CONTAINER_PORT:-8080}
+      APP_CONTAINER_PORT: ${API_CONTAINER_PORT:-8080}
     ports:
       - "80:80"
       - "443:443"

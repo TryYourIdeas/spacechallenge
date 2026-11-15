@@ -1,0 +1,29 @@
+Site,Location,Category,Why Valuable for Moon Training,NASA-Program Connection,Moon Relevance (1-5),Source,lat,lon
+Antarctic Stations,Antarctica,Polar,Isolation and extreme operations,NASA Analog Missions,4,NASA Analog Missions,-77.85,166.67
+McMurdo Dry Valleys,Antarctica,Polar Desert,Cold dry terrain and field science,Planetary analog research,5,NASA analog references,-77.5,162.0
+Haughton Crater,"Nunavut, Canada",Impact Crater,Crater geology and remote operations,Analog exploration,5,NASA Space Apps,75.38,-89.68
+Atacama Desert,Chile,Extreme Desert,Very dry environment for testing equipment,Analog exploration,4,NASA Space Apps,-24.5,-69.25
+Death Valley,"California, USA",Desert,Harsh terrain and operations,Field testing,4,NASA Space Apps,36.46,-116.87
+Kilauea Basalt Fields,"Hawaii, USA",Volcanic,Basalt resembles lunar volcanic terrain,Geology training,5,NASA Analog Explorer,19.42,-155.29
+Mauna Loa Lava Tubes,"Hawaii, USA",Lava Tubes,Potential analog for lunar habitats,Surface exploration,5,Analog site,19.48,-155.6
+Medicine Lake Lava Tubes,"California, USA",Lava Tubes,Lava cave detection and mapping,Science investigations,5,NASA Analog Explorer,41.58,-121.57
+Lava Beds National Monument,"California, USA",Lava Tubes,Study subterranean environments,Planetary analog fieldwork,5,NASA Science,41.71,-121.51
+Askja Caldera,Iceland,Volcanic,One of the most moon-like terrains on Earth,Apollo geology training,5,Apollo training sources,65.03,-16.75
+Lake Myvatn Region,Iceland,Volcanic,Basaltic lunar analog terrain,Apollo training,5,Apollo training sources,65.6,-17.0
+Odadahraun Lava Field,Iceland,Volcanic,Large barren lava field similar to lunar terrain,Astronaut geology training,5,Apollo training sources,65.1,-17.0
+Meteor Crater,"Arizona, USA",Impact Crater,Impact geology training,Apollo geology training,5,Apollo training history,35.03,-111.02
+Grand Canyon,"Arizona, USA",Geology,Geological observation training,Apollo geology training,3,Apollo training history,36.11,-112.11
+Flagstaff Volcanic Fields,"Arizona, USA",Volcanic,Lunar geology analogs,Apollo program,5,Apollo training history,35.45,-111.55
+Nevada Test Site Craters,"Nevada, USA",Crater Terrain,Impact-like landscape,Apollo training,4,Apollo training history,37.18,-116.04
+Sudbury Basin,"Ontario, Canada",Impact Structure,Large impact geology system,Astronaut field studies,4,Apollo training history,46.6,-81.2
+Orocopia Mountains,"California, USA",Desert Geology,Surface mapping practice,Apollo training,3,Apollo training history,33.75,-115.85
+Chocolate Mountains,"California, USA",Desert Geology,Remote geology exercises,Apollo training,3,Apollo training history,33.2,-115.2
+Alaska Volcanic Areas,"Alaska, USA",Volcanic,Volcanic and rugged terrain,Apollo field training,4,Apollo training history,58.27,-155.16
+Rio Tinto,Spain,Astrobiology/Geology,Extreme mineral environment,Planetary analogs,3,NASA analog studies,37.72,-6.55
+Svalbard,Norway,Arctic,Ice and volcanic analog research,Planetary analogs,4,NASA analog studies,78.22,15.65
+Iceland Southwest Field Sites,Iceland,Volcanic,Planetary geology investigations,NASA fieldwork,4,NASA fieldwork,63.88,-22.45
+JSC Rock Yard Lunar Yard,"Texas, USA",Engineered Analog,Simulated lunar terrain,Rover and suit testing,5,JSC Planetary Analog Test Site,29.55,-95.097
+Neutral Buoyancy Laboratory,"Texas, USA",Facility,EVA practice and procedures,Astronaut training,4,JSC,29.55,-95.097
+ARGOS Facility,"Texas, USA",Reduced Gravity,Simulates lunar gravity,Lunar EVA training,5,NASA ARGOS,29.55,-95.097
+Space Vehicle Mockup Facility,"Texas, USA",Mockup Facility,Mission rehearsal,Crew training,3,JSC,29.55,-95.097
+Desert RATS Test Areas,Southwestern USA,Field Operations,Human-robotic exploration testing,Desert RATS,4,NASA fact sheet,35.6,-111.4

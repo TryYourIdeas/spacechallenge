@@ -4,7 +4,10 @@ export default defineNuxtConfig({
   ssr: false,
   devtools: { enabled: false },
   // Override at build/run time with NUXT_PUBLIC_API_BASE (no trailing slash).
-  runtimeConfig: { public: { apiBase: 'http://127.0.0.1:8080' } },
+  // Empty = same origin (the Nuxt server serves the SPA and /api). For a separately hosted
+  // static build (Pages) set NUXT_PUBLIC_API_BASE to the API's https origin, no trailing slash.
+  runtimeConfig: { public: { apiBase: '' } },
+  nitro: { compressPublicAssets: true },
   css: [
     '@fontsource-variable/geist',
     '@fontsource-variable/geist-mono',
