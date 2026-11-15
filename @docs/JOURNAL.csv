@@ -14,3 +14,33 @@ Nuxt + Leaflet layer explorer with point detail form,"create a nuxtjs app with l
 "Add how-to-use docs and AGENTS rule","create a directory how-to-use in the docs directory with three files: config.md, manual.md and features.md describing how to configure the application. How to use it. and the features of the application. Update the AGENTS.md file to keeps these files updated with any changes to the project.",2026-11-15T10:00:00-03:00,unavailable,unavailable
 "Merge docs into @docs","integrate the @docs and docs directories into a single directory @docs and update AGENTS.md accordingly",2026-11-15T10:10:00-03:00,unavailable,unavailable
 "Compose uses POSTGRES_IMAGE","yes, make compose.yaml use POSTGRES_IMAGE",2026-11-15T10:20:00-03:00,unavailable,unavailable
+"Explain how to run the stack and clarify Nuxt 4 (Vue/Nitro) vs Next.js","Qual comando roda o projeto? está todo em next js?",2026-11-15T08:37:45-03:00,unavailable,38
+"Analyze main map screen and ask filter planning questions","Analise a tela principal onde mostra o mapa e vamos planejar filtros, me faça as perguntas necessárias",2026-11-15T08:52:05-03:00,unavailable,143
+"Start project PostgreSQL Docker container","Suba o docker do postrges do projeto",2026-11-15T09:00:15-03:00,unavailable,322
+"Check Postgres data state and environment configuration","já tem dados e o env tá configura?",2026-11-15T09:02:50-03:00,unavailable,89
+"Create local Compose override and frontend .env, start queue, and apply DB migrations","pode criar o que precisa",2026-11-15T09:25:50-03:00,unavailable,211
+"Propose filter architecture and UX plan based on user answers","1:
+ a - Filtro global por país, continente e distantancia em km
+b - sim, teremos os filtros das camadas pelo tipo de mineral
+ c - Sim, similiaridade
+
+2 - ambos, dropdown, sugira
+
+3 - combinas
+4 -1
+5 - enquadrar, sugira",2026-11-15T09:02:19-03:00,unavailable,115
+"Check Figma access and suggest Figma Marketplace plugin","voce tem acesso ao meu figma, consegue desenhar lá?",2026-11-15T09:03:29-03:00,unavailable,25
+"Verify Figma connection via whoami and ask team/link selection","/figma-implement-motion Implement this Figma frame as a React component: <link>",2026-11-15T09:06:26-03:00,unavailable,39
+"Create Figma design file in Railson Silva's team with Layer Explorer & Filters screen","opção 1, faça no Railson Silva´s team",2026-11-15T09:16:37-03:00,unavailable,552
+"Confirm interactive Leaflet world map remains unchanged and explain filter behavior on map","mas continua com o mapa mundial, certo?",2026-11-15T09:19:23-03:00,unavailable,48
+"Clarify filters are currently only in Figma and offer code implementation","Já está no código ou só no figma?",2026-11-15T09:20:25-03:00,unavailable,18
+"Implement full global, mineral, oxide, and lunar similarity filter system in frontend and PostGIS backend","Sim",2026-11-15T09:43:19-03:00,unavailable,1327
+"Translate all filter UI labels, countries, continents, presets, and ARIA strings to English","Está em português, a aplicação deve ser em inglês",2026-11-15T09:56:24-03:00,unavailable,326
+"Fix radius origin so it tracks selected continent, country, or map center instead of hardcoded Brazil fallback","VEja que o raio, mesmo estando em outro lugar a seleção o raio tá ficando no Brasil, o que houve?",2026-11-15T10:17:54-03:00,unavailable,335
+"Explain purpose of JOURNAL.csv","qual motivo do journal.csv?",2026-11-15T10:20:33-03:00,unavailable,14
+"Allow Tailscale hostname in Nuxt Vite dev server allowedHosts","libera: export default defineConfig({
+  // ...o que já existe
+  server: {
+    allowedHosts: ['railson-silva.tail4526a3.ts.net'],
+  },
+})",2026-11-15T10:26:02-03:00,unavailable,39
