@@ -1,7 +1,7 @@
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { basename } from 'node:path'
 import type { Pool } from 'pg'
 import { analyze, points, type Point } from './csv'
-import { TASK_COLUMNS, type TaskRow } from './events'
 
 const PALETTE = [
   { color: '#4ADE80', shape: 'circle' },
@@ -10,51 +10,47 @@ const PALETTE = [
   { color: '#5EA8FF', shape: 'triangle' },
 ] as const
 const BATCH = 1000
-const PROGRESS_EVERY_MS = 400
 
 const labelOf = (name: string) => name.replace(/\.csv$/i, '') || 'Imported layer'
 
+// Fixed project namespace: the same file name always maps to the same layer id.
+const NAMESPACE = '6f1d5c1e-2b3a-5d4e-9a7b-3c0d8e2f4a11'
+
+/** UUIDv5 of the file name, so re-importing a file replaces its layer instead of duplicating it. */
+export function layerIdFor(fileName: string): string {
+  const h = createHash('sha1')
+    .update(Buffer.from(NAMESPACE.replace(/-/g, ''), 'hex')).update(fileName).digest()
+  h[6] = (h[6]! & 0x0f) | 0x50
+  h[8] = (h[8]! & 0x3f) | 0x80
+  const x = h.subarray(0, 16).toString('hex')
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`
+}
+
+export interface ImportResult { layerId: string; label: string; imported: number; skipped: number; replaced: boolean }
+
 /**
- * Imports one CSV from the data directory into layers/layer_points in a single
- * transaction. Replay-safe: the layer shares the task's id and is rewritten.
- * `onTask(row)` receives the updated task row whenever its state/progress changes.
+ * Imports one CSV file into layers/layer_points in a single transaction (all or nothing).
+ * Replay-safe: the layer id derives from the file name and the old layer is rewritten.
  */
-export async function processImport(
-  pool: Pool, taskId: string,
-  { sourceDir, onTask = async () => {} }: { sourceDir: string; onTask?: (row: TaskRow) => Promise<unknown> | unknown },
-): Promise<'skipped' | 'done'> {
-  const { rows: [task] } = await pool.query<TaskRow>(
-    `UPDATE tasks SET status = 'processing', attempts = attempts + 1, error = NULL,
-       progress_done = 0, progress_total = NULL, updated_at = now()
-     WHERE id = $1 AND status <> 'done' RETURNING ${TASK_COLUMNS}`, [taskId])
-  if (!task) return 'skipped'
-  await onTask(task)
-
-  let last = 0
-  const progress = async (done: number, total: number | null, force = false) => {
-    const now = Date.now()
-    if (!force && now - last < PROGRESS_EVERY_MS) return
-    last = now
-    const { rows: [row] } = await pool.query<TaskRow>(
-      `UPDATE tasks SET progress_done = $2, progress_total = $3, updated_at = now()
-       WHERE id = $1 RETURNING ${TASK_COLUMNS}`, [taskId, done, total])
-    if (row) await onTask(row)
-  }
-
-  const path = join(sourceDir, task.source_name)
-  const a = await analyze(path, scanned => progress(scanned, null))
-  await progress(0, a.valid, true)
+export async function importCsvFile(
+  pool: Pool, path: string, onProgress: (done: number, total: number | null) => void = () => {},
+): Promise<ImportResult> {
+  const fileName = basename(path)
+  const layerId = layerIdFor(fileName)
+  const label = labelOf(fileName)
+  const a = await analyze(path, scanned => onProgress(scanned, null))
+  onProgress(0, a.valid)
 
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    await client.query('DELETE FROM layers WHERE id = $1', [taskId])
+    const del = await client.query('DELETE FROM layers WHERE id = $1', [layerId])
     const { rows: [{ n }] } = await client.query('SELECT count(*)::int AS n FROM layers')
     const style = PALETTE[n % PALETTE.length]!
     await client.query(
       `INSERT INTO layers (id, label, color, shape, fields, row_count, skipped)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [taskId, labelOf(task.source_name), style.color, style.shape, JSON.stringify(a.fields), a.valid, a.skipped])
+      [layerId, label, style.color, style.shape, JSON.stringify(a.fields), a.valid, a.skipped])
 
     let batch: Point[] = []
     let done = 0
@@ -63,35 +59,23 @@ export async function processImport(
       await client.query(
         `INSERT INTO layer_points (layer_id, row_idx, latitude, longitude, name, data)
          SELECT $1, * FROM unnest($2::int[], $3::float8[], $4::float8[], $5::text[], $6::jsonb[])`,
-        [taskId, batch.map(p => p.idx), batch.map(p => p.latitude), batch.map(p => p.longitude),
+        [layerId, batch.map(p => p.idx), batch.map(p => p.latitude), batch.map(p => p.longitude),
           batch.map(p => p.name), batch.map(p => JSON.stringify(p.data))])
       done += batch.length
       batch = []
-      await progress(done, a.valid)
+      onProgress(done, a.valid)
     }
     for await (const p of points(path, a)) {
       batch.push(p)
       if (batch.length >= BATCH) await flush()
     }
     await flush()
-    const { rows: [final] } = await client.query<TaskRow>(
-      `UPDATE tasks SET status = 'done', error = NULL, imported_rows = $2::int, skipped_rows = $3::int,
-         progress_done = $2::bigint, progress_total = $2::bigint, updated_at = now()
-       WHERE id = $1 RETURNING ${TASK_COLUMNS}`, [taskId, a.valid, a.skipped])
     await client.query('COMMIT')
-    if (final) await onTask(final)
-    return 'done'
+    return { layerId, label, imported: a.valid, skipped: a.skipped, replaced: (del.rowCount ?? 0) > 0 }
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {})
     throw e
   } finally {
     client.release()
   }
-}
-
-export async function markFailed(pool: Pool, taskId: string, message: string) {
-  const { rows: [row] } = await pool.query<TaskRow>(
-    `UPDATE tasks SET status = 'failed', error = $2, updated_at = now()
-     WHERE id = $1 AND status <> 'done' RETURNING ${TASK_COLUMNS}`, [taskId, message])
-  return row
 }
