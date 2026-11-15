@@ -166,6 +166,24 @@ scripts/import_csv.sh path/to/file.csv        # or: cd frontend && npm run impor
   are skipped and counted. It exits non-zero with a message on any error.
 - Reload the app to see a new layer.
 
+### Converting GeoJSON to CSV
+
+```sh
+scripts/geojson_to_csv.sh places.geojson [out.csv]   # or: cd frontend && npm run geojson-to-csv -- places.geojson
+```
+
+Writes `places.csv` beside the input (or to `out.csv`) with `lat` and `lon`
+columns followed by one column per feature property, ready for the import
+script. It never overwrites an existing file.
+
+- Accepts a FeatureCollection, a Feature or a bare geometry.
+- `Point` gives one row; `MultiPoint` and `GeometryCollection` give one row per
+  point. Lines and polygons give one row at the mean of their vertices (an
+  approximation, not a true centroid; polygon holes are ignored).
+- Nested property values are written as JSON; a property named like a coordinate
+  column (`lat`, `lon`, `longitude`...) is renamed with a `prop_` prefix.
+- Features without usable coordinates are skipped and counted in the output.
+
 ## Known limitation
 
 The app is read-only (no route writes or deletes data) and has no authentication: anyone who can reach it can read every layer. Keep it on a trusted network if the data is private.

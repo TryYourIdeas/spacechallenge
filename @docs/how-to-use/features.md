@@ -19,6 +19,7 @@ What Layer Explorer does today. Keep this list in step with the code.
 - Imported outside the app by a local script (`scripts/import_csv.sh <file.csv>`
   or `npm run import -- <file.csv>`) that writes straight into PostgreSQL via
   `DATABASE_URL`; the web app only presents and filters.
+- `scripts/geojson_to_csv.sh` converts GeoJSON to a CSV with `lat`/`lon` for import.
 - One transaction per file: all of the layer or nothing.
 - Re-importing a file name replaces its layer (layer id derives from the name).
 - Invalid-coordinate rows are skipped and counted.

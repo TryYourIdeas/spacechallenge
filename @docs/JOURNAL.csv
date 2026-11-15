@@ -47,3 +47,4 @@ b - sim, teremos os filtros das camadas pelo tipo de mineral
 Redesign cluster popup,"when several points share the same location the dialog for selecting the points requires better design, see attached image",2026-11-15T09:55:40-03:00,unavailable,unavailable
 "Replace UI/queue CSV import with local import script; remove worker, Redis and import API",go implement,2026-11-15T11:44:04-03:00,unavailable,unavailable
 Remove layer deletion so the app is fully read-only,remove it so the app is fully read-only.,2026-11-15T11:48:46-03:00,unavailable,unavailable
+"Add GeoJSON to CSV (lat, lon) conversion script","create a conversion script that converts a geojson file into a csv with lat, and lon fields",2026-11-15T12:01:21-03:00,unavailable,unavailable

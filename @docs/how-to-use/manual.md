@@ -53,6 +53,9 @@ Then reload the page: the new layer appears in the panel and on the map and
 stays after later reloads. See [config.md](config.md#importing-data) for
 details. Importing the same file name again replaces that layer.
 
+Have GeoJSON instead? Convert it first with `scripts/geojson_to_csv.sh file.geojson`
+(see [config.md](config.md#converting-geojson-to-csv)).
+
 CSV requirements:
 
 - A latitude column (`lat` or `latitude`) and a longitude column (`lon`, `lng`

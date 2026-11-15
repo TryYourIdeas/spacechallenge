@@ -53,6 +53,7 @@ PostgreSQL.
 | `frontend/tests/` | Vitest: layer parsing, static data, CSV parsing, import |
 | `frontend/Dockerfile` | Builds the Nuxt project into the `app` image |
 | `frontend/scripts/import-csv.ts` | CLI import (`npm run import -- <file.csv>`) |
+| `frontend/scripts/geojson-to-csv.ts` | CLI GeoJSON to CSV converter (`utils/geojson.ts`) |
 | `backend/docker/` | Compose topology (`compose.yaml`, `compose.vm.yaml`), `compose.sh` wrapper, `Caddyfile`, `.env.example` |
 | `backend/services/database/` | `init/` (new-volume SQL), `migrations/` (forward-only), `SCHEMA.md` |
 | `scripts/` | `deploy_frontend.sh` (Pages), `deploy_backend.sh` + `vm_activate.sh` (VM), `import_csv.sh` (CLI import), `start.sh` menu |
