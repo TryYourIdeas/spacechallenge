@@ -40,6 +40,7 @@ What Layer Explorer does today. Keep this list in step with the code.
   or `npm run import -- <file.csv>`) that writes straight into PostgreSQL via
   `DATABASE_URL`; the web app only presents and filters.
 - `scripts/geojson_to_csv.sh` converts GeoJSON to a CSV with `lat`/`lon` for import.
+- `scripts/migrate.sh` applies pending database migrations (needed on Vercel, which skips them).
 - `scripts/list_layers.sh` lists built-in and imported layers; `scripts/delete_layer.sh <id-or-label>` deletes an imported layer (confirmation required). Both run locally, not in the app.
 - One transaction per file: all of the layer or nothing.
 - Re-importing a file name replaces its layer (layer id derives from the name).

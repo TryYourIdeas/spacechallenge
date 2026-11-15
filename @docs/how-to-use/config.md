@@ -140,8 +140,13 @@ functions). Verified by a containerised build only; no deployment was run.
 
 Limits of serverless hosting:
 
-- When `VERCEL` is set the server skips migrations. Apply them by running the
-  Docker `app` once against the same database, or by running `npm run import`.
+- When `VERCEL` is set the server skips migrations. After any release that adds a
+  migration, apply it to the database Vercel uses **before or right after
+  deploying**: `DATABASE_URL=<that database> scripts/migrate.sh` (or
+  `cd frontend && npm run migrate`). It is idempotent and prints what it applied.
+  Release `d2f1fc7` needs `0004_geography_index.sql`: without it the cross-layer
+  proximity filter is too slow (requests time out). The index build briefly blocks
+  writes (imports) but not reads.
 - Import data from your machine with the script (below); Vercel serves what is
   in the database.
 - The API is read-only but has no authentication (see below); a public Vercel URL exposes all layer data. Enable Vercel Deployment Protection if the data is private.
