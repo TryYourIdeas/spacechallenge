@@ -2,7 +2,7 @@
 import type { GlobalFilter, Layer, LayerFilter, SelectedPoint } from '~/types/layers'
 import { defaultGlobalFilter, matchesGlobalFilter, matchesLayerFilter, regionCenter } from '~/utils/filters'
 
-const { indexState, indexError, metas, states, visible, toggle, reload, retryLayer, tasks, apiError, eventsOnline, files, filesState, filesError, importError, loadFiles, startImport, removeLayer, fetchClusters, fetchPoints, fetchPoint } = useLayers()
+const { indexState, indexError, metas, states, visible, toggle, reload, retryLayer, apiError, removeLayer, fetchClusters, fetchPoints, fetchPoint } = useLayers()
 const selected = shallowRef<SelectedPoint | null>(null)
 const form = ref<{ focus: () => void }>()
 const mapView = ref<{ fitFiltered: () => void; getMapCenter: () => { lat: number; lon: number } | null }>()
@@ -185,12 +185,10 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
       <LayerPanel
         v-else
         :metas="metas" :states="states" :visible="visible"
-        :tasks="tasks" :api-error="apiError" :events-online="eventsOnline"
-        :files="files" :files-state="filesState" :files-error="filesError" :import-error="importError"
+        :api-error="apiError"
         :global-filter="globalFilter" :layer-filters="layerFilters" :remote-counts="remoteCounts"
         :picking-origin="pickingOrigin" :has-selected-point="!!selected"
         @toggle="toggle" @retry="retryLayer" @remove="removeLayer"
-        @load-files="loadFiles" @start-import="startImport"
         @update:global-filter="updateGlobalFilter"
         @update:layer-filter="updateLayerFilter"
         @reset-all-filters="resetAllFilters"

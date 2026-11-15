@@ -1,4 +1,4 @@
-import type { ClusterResponse, DataFile, Layer, LayerMeta, LayerRow, PointSummary, ServerTask } from '~/types/layers'
+import type { ClusterResponse, Layer, LayerMeta, LayerRow, PointSummary } from '~/types/layers'
 import type { ServerFilterPayload } from '~/utils/filters'
 import { parseClusterResponse, parseLayer, parseLayerIndex, parsePointList, parsePointRow, parseRemoteLayer } from '~/utils/layers'
 
@@ -57,7 +57,6 @@ export function useLayers() {
       metas.value = [...list, ...kept]
       visible.value = new Set([...list, ...kept].map(m => m.id).filter(id => !kept.some(k => k.id === id) || visible.value.has(id)))
       indexState.value = 'ready'
-      if (!events) connectEvents()
       await Promise.all([...list.map(m => loadLayer(m, signal)), syncServerLayers(signal)])
     } catch (e) {
       if (signal.aborted) return
@@ -83,16 +82,9 @@ export function useLayers() {
     visible.value = next
   }
 
-  // ---- Layers stored on the server (CSV files imported from the data directory) ----
-  const tasks = ref<ServerTask[]>([])
+  // ---- Layers stored on the server (CSV files imported with `npm run import`) ----
   const apiError = ref('')
-  const eventsOnline = ref(false)
-  const files = ref<DataFile[]>([])
-  const filesState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const filesError = ref('')
-  const importError = ref('')
   const apiBase = String(useRuntimeConfig().public.apiBase).replace(/\/$/, '')
-  let events: EventSource | undefined
   const loadingServer = new Set<string>()
 
   async function api(path: string, init: RequestInit = {}): Promise<Response> {
@@ -138,7 +130,7 @@ export function useLayers() {
     visible.value = new Set([...visible.value, meta.id])
   }
 
-  /** Loads every server layer we don't have yet (page start, SSE reconnect, finished import). */
+  /** Loads every server layer we don't have yet (page start). */
   async function syncServerLayers(signal: AbortSignal) {
     try {
       const res = await api('/api/layers', { signal })
@@ -155,58 +147,6 @@ export function useLayers() {
       }))
     } catch {
       if (!signal.aborted) apiError.value = 'Saved CSV layers are unavailable: the server could not be reached.'
-    }
-  }
-
-  function applyTask(t: ServerTask) {
-    const prev = tasks.value.find(x => x.id === t.id)
-    // Events can arrive out of order relative to the snapshot; keep the newest.
-    if (prev && prev.updatedAt > t.updatedAt) return
-    tasks.value = [t, ...tasks.value.filter(x => x.id !== t.id)]
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8)
-    if (t.status === 'done' && prev?.status !== 'done' && controller) void syncServerLayers(controller.signal)
-  }
-
-  function connectEvents() {
-    if (typeof EventSource === 'undefined') return
-    events?.close()
-    events = new EventSource(`${apiBase}/api/events`)
-    events.addEventListener('open', () => { eventsOnline.value = true })
-    events.addEventListener('error', () => { eventsOnline.value = false }) // the browser retries by itself
-    events.addEventListener('snapshot', (e) => {
-      try {
-        const { tasks: list } = JSON.parse((e as MessageEvent).data) as { tasks: ServerTask[] }
-        list.forEach(applyTask)
-        if (controller) void syncServerLayers(controller.signal)
-      } catch { /* ignore malformed frame */ }
-    })
-    events.addEventListener('task', (e) => {
-      try { applyTask(JSON.parse((e as MessageEvent).data) as ServerTask) } catch { /* ignore malformed frame */ }
-    })
-  }
-
-  async function loadFiles() {
-    filesState.value = 'loading'
-    filesError.value = ''
-    try {
-      files.value = ((await (await api('/api/files')).json()) as { files: DataFile[] }).files
-      filesState.value = 'ready'
-    } catch (e) {
-      filesError.value = e instanceof Error ? e.message : 'Could not list files'
-      filesState.value = 'error'
-    }
-  }
-
-  /** Asks the server to import a file from its data directory; progress arrives over SSE. */
-  async function startImport(name: string) {
-    importError.value = ''
-    try {
-      const res = await api('/api/imports', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: name }),
-      })
-      applyTask(await res.json() as ServerTask)
-    } catch (e) {
-      importError.value = `${name}: ${e instanceof Error ? e.message : 'could not start the import'}`
     }
   }
 
@@ -230,7 +170,7 @@ export function useLayers() {
   }
 
   onMounted(load)
-  onBeforeUnmount(() => { controller?.abort(); events?.close() })
+  onBeforeUnmount(() => { controller?.abort() })
 
-  return { indexState, indexError, metas, states, visible, toggle, reload: load, retryLayer, tasks, apiError, eventsOnline, files, filesState, filesError, importError, loadFiles, startImport, removeLayer, fetchClusters, fetchPoints, fetchPoint }
+  return { indexState, indexError, metas, states, visible, toggle, reload: load, retryLayer, apiError, removeLayer, fetchClusters, fetchPoints, fetchPoint }
 }
