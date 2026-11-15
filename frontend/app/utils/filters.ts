@@ -1,4 +1,4 @@
-import type { GlobalFilter, LatLngBoundsTuple, Layer, LayerField, LayerFilter, LayerRow, NumericRangeFilter } from '../types/layers'
+import type { FieldCatalog, GlobalFilter, LatLngBoundsTuple, Layer, LayerField, LayerFilter, LayerRow, NumericRangeFilter } from '../types/layers'
 
 export interface GeoEnvelope {
   west: number
@@ -118,6 +118,18 @@ export function defaultGlobalFilter(): GlobalFilter {
 /** Largest accepted proximity radius in km (the server enforces the same bound). */
 export const MAX_PROXIMITY_KM = 20000
 
+/**
+ * True when two filter sets differ in anything that changes which points are shown.
+ * The map's auto-fit preference is not a filter and is ignored.
+ */
+export function filtersDiffer(
+  a: { global: GlobalFilter; layers: Record<string, LayerFilter> },
+  b: { global: GlobalFilter; layers: Record<string, LayerFilter> },
+): boolean {
+  const norm = (x: typeof a) => JSON.stringify({ g: { ...x.global, autoFit: true }, l: x.layers })
+  return norm(a) !== norm(b)
+}
+
 export function defaultLayerFilter(): LayerFilter {
   return {
     mode: 'and',
@@ -227,7 +239,8 @@ export function detectLayerCapabilities(layer: Layer): LayerFilterCapabilities {
       }
       mineralOptions = [...set].sort()
     } else {
-      mineralOptions = COMMON_BASALT_MINERALS
+      const cat = catalogOf(layer, mineralField.key)
+      mineralOptions = cat?.filterKind === 'select' && cat.options ? cat.options : COMMON_BASALT_MINERALS
     }
   }
 
@@ -248,12 +261,20 @@ export function detectLayerCapabilities(layer: Layer): LayerFilterCapabilities {
   }
 }
 
+/** Catalog entry of a field of a server layer, if the server provided one. */
+export const catalogOf = (layer: Layer, key: string): FieldCatalog | undefined => layer.catalog?.find(c => c.key === key)
+
 export function fieldRangeBounds(layer: Layer, field: LayerField): { min: number; max: number; step: number } {
   const ox = OXIDE_DEFAULTS[field.label.trim().toLowerCase()]
   if (ox) return ox
   const lbl = field.label.trim().toLowerCase()
   if (lbl.startsWith('sim_') || lbl.includes('pct_') || lbl.includes('percentil')) {
     return { min: 0, max: 100, step: 1 }
+  }
+  const cat = catalogOf(layer, field.key)
+  if (cat?.filterKind === 'range' && typeof cat.min === 'number' && typeof cat.max === 'number') {
+    const span = cat.max - cat.min
+    return { min: Math.floor(cat.min), max: Math.ceil(cat.max), step: span > 50 ? 1 : span > 5 ? 0.5 : 0.01 }
   }
   if (layer.rows.length > 0) {
     let min = Infinity
@@ -274,6 +295,9 @@ export function fieldRangeBounds(layer: Layer, field: LayerField): { min: number
 }
 
 export function distinctCategoryOptions(layer: Layer, field: LayerField): string[] {
+  const cat = catalogOf(layer, field.key)
+  if (cat?.filterKind === 'select' && cat.options) return cat.options
+  if (cat?.filterKind === 'boolean') return ['false', 'true']
   if (layer.rows.length > 0) {
     const s = new Set<string>()
     for (const r of layer.rows) {

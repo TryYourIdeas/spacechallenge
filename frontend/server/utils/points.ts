@@ -241,8 +241,30 @@ export async function listPoints(
   }
 }
 
+export type FieldDataType = 'number' | 'boolean' | 'text' | 'date'
+export type FilterKind = 'select' | 'range' | 'boolean' | 'date_range' | 'text'
+
+/** Schema plus data catalog of one field: which filter suits it and the values it can take. */
+export interface FieldCatalog {
+  key: string
+  label: string
+  dataType: FieldDataType
+  filterKind: FilterKind
+  /** Values that are present (not null / NA / -999). */
+  valueCount: number
+  missingCount: number
+  /** Distinct present values; null for number fields. */
+  distinctCount: number | null
+  /** Number fields: smallest and largest present value. Date fields: ISO strings. */
+  min: number | string | null
+  max: number | string | null
+  /** Select fields: the sorted distinct values (fewer than 20). */
+  options: string[] | null
+}
+
 export interface LayerSummary {
   fields: unknown
+  catalog: FieldCatalog[]
   skipped: number
   rowCount: number
   /** [[south, west], [north, east]], or null for an empty layer. */
@@ -255,8 +277,20 @@ export async function layerSummary(pool: Pool, layerId: string): Promise<LayerSu
   const { rows: [b] } = await pool.query(
     `SELECT min(latitude) AS s, min(longitude) AS w, max(latitude) AS n, max(longitude) AS e
      FROM layer_points WHERE layer_id = $1`, [layerId])
+  const { rows: cat } = await pool.query(
+    `SELECT s.field_key, s.label, s.data_type, c.filter_kind, c.value_count, c.missing_count, c.distinct_count,
+            c.min_number, c.max_number, c.min_text, c.max_text, c.options
+     FROM layer_schema s JOIN layer_catalog c USING (layer_id, field_key)
+     WHERE s.layer_id = $1 ORDER BY s.position`, [layerId])
+  const catalog: FieldCatalog[] = cat.map(r => ({
+    key: r.field_key, label: r.label, dataType: r.data_type, filterKind: r.filter_kind,
+    valueCount: r.value_count, missingCount: r.missing_count, distinctCount: r.distinct_count,
+    min: r.data_type === 'number' ? r.min_number : r.min_text,
+    max: r.data_type === 'number' ? r.max_number : r.max_text,
+    options: r.options,
+  }))
   return {
-    fields: l.fields, skipped: l.skipped, rowCount: l.row_count,
+    fields: l.fields, catalog, skipped: l.skipped, rowCount: l.row_count,
     bounds: b && b.s !== null ? [[b.s, b.w], [b.n, b.e]] : null,
   }
 }

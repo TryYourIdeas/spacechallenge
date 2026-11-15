@@ -26,6 +26,11 @@ const props = defineProps<{
   apiError: string
   globalFilter: GlobalFilter
   layerFilters: Record<string, LayerFilter>
+  /** The filters currently in effect (the two above are the unapplied edits). */
+  appliedGlobalFilter: GlobalFilter
+  appliedLayerFilters: Record<string, LayerFilter>
+  /** True when the edits differ from the applied filters. */
+  dirty: boolean
   remoteCounts: Record<string, number>
 }>()
 
@@ -35,6 +40,7 @@ const emit = defineEmits<{
   'update:globalFilter': [filter: GlobalFilter]
   'update:layerFilter': [id: string, filter: LayerFilter]
   'reset-all-filters': []
+  apply: []
   'fit-filtered': []
 }>()
 
@@ -43,9 +49,13 @@ const selectedOxideField = ref<Record<string, string>>({})
 const selectedExtraField = ref<Record<string, string>>({})
 
 const availableCountries = computed(() => countriesForContinent(props.globalFilter.continent))
-const globalActiveCount = computed(() => countGlobalFilters(props.globalFilter))
+const globalActiveCount = computed(() => countGlobalFilters(props.appliedGlobalFilter))
+const appliedFilterCount = computed(() =>
+  globalActiveCount.value + Object.values(props.appliedLayerFilters).reduce((n, f) => n + countLayerFilters(f), 0),
+)
 const anyFilterActive = computed(() =>
-  globalActiveCount.value > 0 || Object.values(props.layerFilters).some(f => countLayerFilters(f) > 0),
+  appliedFilterCount.value > 0 || countGlobalFilters(props.globalFilter) > 0 ||
+  Object.values(props.layerFilters).some(f => countLayerFilters(f) > 0),
 )
 /** Server layers that are visible: proximity compares points between these. */
 const proximityLayerCount = computed(() =>
@@ -149,18 +159,30 @@ function totalPointCount(layer: Layer): number {
 }
 
 function filteredPointCount(layer: Layer): number | null {
-  const f = props.layerFilters[layer.id]
-  if (!hasActiveFilters(props.globalFilter, f)) return null
+  const f = props.appliedLayerFilters[layer.id]
+  if (!hasActiveFilters(props.appliedGlobalFilter, f)) return null
   if (layer.remote) {
     return props.remoteCounts[layer.id] ?? null
   }
-  return filterLayerRows(layer, props.globalFilter, f).length
+  return filterLayerRows(layer, props.appliedGlobalFilter, f).length
 }
 
 </script>
 
 <template>
   <div class="panel-stack">
+    <!-- ==================== APPLY FILTERS ==================== -->
+    <div class="apply-bar" :class="{ pending: dirty }">
+      <button type="button" class="apply-btn" :disabled="!dirty" @click="emit('apply')">
+        Apply filters
+      </button>
+      <p class="apply-status" role="status">
+        <template v-if="dirty"><span aria-hidden="true">●</span> Changes not applied yet</template>
+        <template v-else-if="appliedFilterCount > 0"><span aria-hidden="true">✓</span> Filters applied ({{ appliedFilterCount }})</template>
+        <template v-else>No filters applied</template>
+      </p>
+    </div>
+
     <!-- ==================== 1A. GLOBAL FILTERS ==================== -->
     <fieldset class="global-filters" :class="{ active: globalActiveCount > 0 }">
       <legend>
@@ -228,6 +250,7 @@ function filteredPointCount(layer: Layer): number | null {
               aria-describedby="gf-prox-help"
               :value="globalFilter.proximityKm ?? ''"
               @input="onProximityInput(($event.target as HTMLInputElement).value)"
+              @keydown.enter="emit('apply')"
             >
             <span>km</span>
           </div>
@@ -617,6 +640,13 @@ function filteredPointCount(layer: Layer): number | null {
 
 <style scoped>
 .panel-stack { display: grid; gap: 0.85rem; }
+.apply-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.5rem 0.65rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-deep-space); }
+.apply-bar.pending { border-color: var(--color-accent-arctic-cyan); }
+.apply-btn { background: var(--color-accent-arctic-cyan); color: #000; border: 1px solid var(--color-accent-arctic-cyan); border-radius: 6px; padding: 0.4rem 1rem; min-height: 40px; font: inherit; font-weight: 600; cursor: pointer; }
+.apply-btn:disabled { background: transparent; color: var(--color-text-secondary); border-color: var(--color-border); cursor: not-allowed; }
+.apply-btn:focus-visible { outline: 2px solid var(--color-accent-arctic-cyan); outline-offset: 2px; }
+.apply-status { margin: 0; font-size: 0.8125rem; color: var(--color-text-secondary); }
+.apply-bar.pending .apply-status { color: var(--color-accent-arctic-cyan); }
 .global-filters, .layers { border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); margin: 0; padding: 0.75rem 0.9rem 0.95rem; }
 .global-filters.active { border-color: var(--color-accent-arctic-cyan); }
 legend { font-weight: 600; padding: 0 0.3rem; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.9375rem; }

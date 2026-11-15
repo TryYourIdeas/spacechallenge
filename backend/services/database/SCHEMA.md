@@ -71,5 +71,38 @@ entries. Nothing is stored or refreshed; deleting a layer removes its entries vi
 the existing cascade. Measured on 120k + 3k points: whole-world cluster plus count
 queries 0.2 to 0.8 s.
 
+## Layer schema and data catalog (migration `0005`)
+
+`layer_schema(layer_id, field_key, position, label, data_type)` holds the schema of
+each layer: `data_type` is one of `number | boolean | text | date`.
+`layer_catalog(layer_id, field_key, value_count, missing_count, distinct_count,
+filter_kind, min_number, max_number, min_text, max_text, options)` describes the
+values found in `layer_points.data` for each field, so filters can be defined from it:
+
+| Field | `filter_kind` | Filter the UI offers | Catalog carries |
+| --- | --- | --- | --- |
+| number | `range` | min/max range | `min_number`, `max_number` |
+| text, 1 to 19 distinct values | `select` | combobox | `options` (sorted), `distinct_count` |
+| text, 20+ distinct values (or none) | `text` | free text "contains" | `distinct_count` |
+| boolean (JSON booleans or `true`/`false` text, any case) | `boolean` | true/false | |
+| date (ISO `YYYY-MM-DD[THH:MM[:SS][Z|±hh:mm]]`) | `date_range` | date range (UI not built yet) | `min_text`, `max_text` |
+
+A field is typed by ALL of its present values (one non-date makes a date column
+text). "Missing" values (JSON null, empty/`NA`/`null`/`-999`/`-999.0` text in any case,
+the number -999) are counted in `missing_count` and excluded from everything else,
+matching the client's sentinel rule. The select threshold is "fewer than 20" and is
+enforced by a CHECK on `options` (1 to 19 entries). A field with no present values
+keeps its declared number/text type. `distinct_count` is NULL for numbers (only the
+range matters).
+
+Both tables are produced by one SQL function, `rebuild_layer_catalog(layer_id)`: it
+replaces the layer's rows from the stored points in a single statement. The CSV
+import calls it inside its transaction (a failure rolls the whole import back), and
+migration `0005` calls it for every existing layer, so the catalog cannot drift from
+the data. Deleting a layer cascades to both tables. The refresh policy is
+"recompute on every import of the layer"; layers are otherwise read-only. Cost:
+about 30 s for 120k points x 57 fields (one scan of `jsonb_each`). The API returns the
+catalog with `GET /api/layers/:id` (`catalog` array, in column order).
+
 Import is a single transaction (layer + points + task `done`), so a failed or
 crashed attempt leaves no partial layer. No vector columns are involved.

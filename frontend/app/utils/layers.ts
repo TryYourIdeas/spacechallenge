@@ -1,4 +1,4 @@
-import type { ClusterItem, ClusterResponse, PointSummary, FieldType, LatLngBoundsTuple, Layer, LayerField, LayerMeta, LayerRow } from '~/types/layers'
+import type { ClusterItem, ClusterResponse, FieldCatalog, PointSummary, FieldType, LatLngBoundsTuple, Layer, LayerField, LayerMeta, LayerRow } from '~/types/layers'
 
 const FIELD_TYPES: FieldType[] = ['string', 'number', 'date']
 const SHAPES: LayerMeta['shape'][] = ['circle', 'square', 'diamond', 'triangle']
@@ -56,6 +56,31 @@ function parseFields(meta: LayerMeta, raw: unknown[]): LayerField[] {
 const isBounds = (b: unknown): b is LatLngBoundsTuple =>
   Array.isArray(b) && b.length === 2 && b.every(p => Array.isArray(p) && p.length === 2 && p.every(n => typeof n === 'number' && Number.isFinite(n)))
 
+const DATA_TYPES = ['number', 'boolean', 'text', 'date']
+const FILTER_KINDS = ['select', 'range', 'boolean', 'date_range', 'text']
+
+/** Validates the catalog of a server layer; malformed entries are dropped (filters fall back to defaults). */
+export function parseCatalog(raw: unknown): FieldCatalog[] {
+  if (!Array.isArray(raw)) return []
+  const out: FieldCatalog[] = []
+  for (const c of raw) {
+    if (!isRecord(c) || typeof c.key !== 'string' || !DATA_TYPES.includes(c.dataType as string) || !FILTER_KINDS.includes(c.filterKind as string)) continue
+    const bound = (v: unknown) => (typeof v === 'number' && Number.isFinite(v)) || typeof v === 'string' ? v : null
+    out.push({
+      key: c.key,
+      dataType: c.dataType as FieldCatalog['dataType'],
+      filterKind: c.filterKind as FieldCatalog['filterKind'],
+      valueCount: typeof c.valueCount === 'number' ? c.valueCount : 0,
+      missingCount: typeof c.missingCount === 'number' ? c.missingCount : 0,
+      distinctCount: typeof c.distinctCount === 'number' ? c.distinctCount : null,
+      min: bound(c.min),
+      max: bound(c.max),
+      options: Array.isArray(c.options) && c.options.every(o => typeof o === 'string') ? (c.options as string[]) : null,
+    })
+  }
+  return out
+}
+
 /** A layer stored on the server: columns and a summary only. Its points arrive per viewport. */
 export function parseRemoteLayer(meta: LayerMeta, raw: unknown): Layer {
   if (!isRecord(raw) || !Array.isArray(raw.fields)) throw new Error(`Summary for "${meta.id}" must contain a "fields" array`)
@@ -65,6 +90,7 @@ export function parseRemoteLayer(meta: LayerMeta, raw: unknown): Layer {
     ...meta,
     fields: parseFields(meta, raw.fields),
     rows: [],
+    catalog: parseCatalog(raw.catalog),
     skipped: typeof raw.skipped === 'number' ? raw.skipped : 0,
     remote: { rowCount: raw.rowCount, bounds: raw.bounds },
   }

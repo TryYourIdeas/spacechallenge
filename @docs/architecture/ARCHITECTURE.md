@@ -169,6 +169,8 @@ migrations. Summary:
 erDiagram
   tasks ||--o| layers : "layers.id = tasks.id"
   layers ||--o{ layer_points : "ON DELETE CASCADE"
+  layers ||--o{ layer_schema : "ON DELETE CASCADE"
+  layer_schema ||--|| layer_catalog : "ON DELETE CASCADE"
   tasks {
     uuid id PK
     text kind
@@ -190,6 +192,24 @@ erDiagram
     int row_count
     int skipped
   }
+  layer_schema {
+    uuid layer_id PK
+    text field_key PK
+    int position
+    text label
+    text data_type "number|boolean|text|date"
+  }
+  layer_catalog {
+    uuid layer_id PK
+    text field_key PK
+    int value_count
+    int missing_count
+    int distinct_count "null for numbers"
+    text filter_kind "select|range|boolean|date_range|text"
+    float8 min_number
+    float8 max_number
+    jsonb options "select only, under 20"
+  }
   layer_points {
     uuid layer_id PK
     int row_idx PK
@@ -205,7 +225,7 @@ erDiagram
   Deleting a layer leaves the task row as history.
 - **Migrations**: `0001` creates `import_jobs`, `layers`, `layer_points`; `0002`
   renames `import_jobs` to `tasks` and adds `kind` and progress columns (the table is no longer written); `0003`
-  enables PostGIS and adds the generated `geom` column and its GiST index. They are
+  enables PostGIS and adds the generated `geom` column and its GiST index; `0004` adds the geography index for cross-layer proximity; `0005` adds `layer_schema`, `layer_catalog` and `rebuild_layer_catalog()` and backfills them. They are
   applied by the app at startup (`utils/db.ts`), each in a transaction, recorded
   in `schema_migrations`, serialized with advisory lock `727001`. Migrations are
   immutable and forward-only. The directory is mounted read-only at

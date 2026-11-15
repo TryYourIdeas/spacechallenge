@@ -209,6 +209,131 @@ describe.skipIf(!adminUrl)('PostGIS clustering (integration)', () => {
     })
   })
 
+  describe('schema and data catalog (rebuild_layer_catalog)', () => {
+    const cat = randomUUID()
+    const fields = [
+      { key: 'c0', label: 'num', type: 'number' },
+      { key: 'c1', label: 'few', type: 'string' },
+      { key: 'c2', label: 'many', type: 'string' },
+      { key: 'c3', label: 'flag', type: 'string' },
+      { key: 'c4', label: 'day', type: 'string' },
+      { key: 'c5', label: 'mixed_day', type: 'string' },
+      { key: 'c6', label: 'all_missing', type: 'number' },
+      { key: 'c7', label: 'twenty', type: 'string' },
+      { key: 'c8', label: 'never_in_data', type: 'string' },
+    ]
+    const FEW = ['red', 'green', 'blue']
+    const rowsN = 40
+    const summary = async () => (await layerSummary(pool, cat))!.catalog
+    const by = (c: Awaited<ReturnType<typeof summary>>, key: string) => c.find(x => x.key === key)!
+
+    beforeAll(async () => {
+      await pool.query(`INSERT INTO layers (id, label, color, shape, fields, row_count)
+        VALUES ($1, 'Catalog', '#00E5FF', 'circle', $2, $3)`, [cat, JSON.stringify(fields), rowsN])
+      await pool.query(
+        `INSERT INTO layer_points (layer_id, row_idx, latitude, longitude, data)
+         SELECT $1, i, 0, 0, jsonb_build_object(
+           'c0', CASE WHEN i % 10 = 0 THEN to_jsonb(-999) WHEN i % 7 = 0 THEN 'null'::jsonb ELSE to_jsonb(i * 1.5) END,
+           'c1', CASE WHEN i % 8 = 0 THEN to_jsonb('NA'::text) WHEN i % 9 = 0 THEN to_jsonb(''::text) ELSE to_jsonb((ARRAY['red','green','blue'])[1 + i % 3]) END,
+           'c2', to_jsonb('v' || i),
+           'c3', to_jsonb((ARRAY['true','FALSE'])[1 + i % 2]),
+           'c4', to_jsonb(CASE WHEN i % 2 = 0 THEN '2026-01-15' ELSE '2026-03-02T10:30:00Z' END),
+           'c5', to_jsonb(CASE WHEN i = 5 THEN 'soon' ELSE '2026-01-15' END),
+           'c6', to_jsonb(-999),
+           'c7', to_jsonb('t' || (i % 20))
+         ) FROM generate_series(1, $2::int) AS i`, [cat, rowsN])
+      await pool.query('SELECT rebuild_layer_catalog($1)', [cat])
+    })
+
+    it('classifies each field as number, boolean, text or date, in column order', async () => {
+      const c = await summary()
+      expect(c.map(x => x.key)).toEqual(fields.map(f => f.key))
+      expect(c.map(x => x.dataType)).toEqual(
+        ['number', 'text', 'text', 'boolean', 'date', 'text', 'number', 'text', 'text'])
+      expect(c.every(x => ['number', 'boolean', 'text', 'date'].includes(x.dataType))).toBe(true)
+    })
+
+    it('gives numeric fields a range from present values only, ignoring null and -999', async () => {
+      const n = by(await summary(), 'c0')
+      expect(n.filterKind).toBe('range')
+      expect(n.min).toBe(1.5)
+      expect(n.max).toBe(58.5) // i = 40 is -999, so 39 * 1.5 is the largest present value
+      expect(n.distinctCount).toBeNull()
+      expect(n.valueCount + n.missingCount).toBe(rowsN)
+      expect(n.missingCount).toBe(4 + 5) // i % 10 = 0 (4 rows) and i % 7 = 0 not already counted (5 rows)
+      expect(n.options).toBeNull()
+    })
+
+    it('marks text with fewer than 20 distinct values as select, excluding missing markers', async () => {
+      const f = by(await summary(), 'c1')
+      expect(f.filterKind).toBe('select')
+      expect(f.options).toEqual([...FEW].sort())
+      expect(f.distinctCount).toBe(3)
+      expect(f.missingCount).toBeGreaterThan(0)
+    })
+
+    it('treats 19 distinct values as select and 20 as free text', async () => {
+      const t = by(await summary(), 'c7')
+      expect(t.distinctCount).toBe(20)
+      expect(t.filterKind).toBe('text')
+      expect(t.options).toBeNull()
+      await pool.query(`DELETE FROM layer_points WHERE layer_id = $1 AND data ->> 'c7' = 't0'`, [cat])
+      await pool.query('SELECT rebuild_layer_catalog($1)', [cat])
+      const after = by(await summary(), 'c7')
+      expect(after.distinctCount).toBe(19)
+      expect(after.filterKind).toBe('select')
+      expect(after.options).toHaveLength(19)
+    })
+
+    it('counts many distinct text values without options', async () => {
+      const m = by(await summary(), 'c2')
+      expect(m.filterKind).toBe('text')
+      expect(m.distinctCount).toBe(rowsN - 2) // two rows were removed above (t0 rows: i = 20, 40)
+      expect(m.options).toBeNull()
+    })
+
+    it('detects booleans (true/false text, any case) and ISO dates', async () => {
+      const c = await summary()
+      expect(by(c, 'c3')).toMatchObject({ dataType: 'boolean', filterKind: 'boolean', options: null })
+      expect(by(c, 'c4')).toMatchObject({ dataType: 'date', filterKind: 'date_range', min: '2026-01-15', max: '2026-03-02T10:30:00Z' })
+    })
+
+    it('one value that is not a date makes the whole field text', async () => {
+      expect(by(await summary(), 'c5')).toMatchObject({ dataType: 'text', filterKind: 'select', distinctCount: 2 })
+    })
+
+    it('falls back to the declared type when a field has no present values', async () => {
+      const c = await summary()
+      expect(by(c, 'c6')).toMatchObject({ dataType: 'number', filterKind: 'range', valueCount: 0, min: null, max: null })
+      expect(by(c, 'c8')).toMatchObject({ dataType: 'text', filterKind: 'text', valueCount: 0, distinctCount: 0 })
+    })
+
+    it('is idempotent and cascades when the layer is deleted', async () => {
+      const before = JSON.stringify(await summary())
+      await pool.query('SELECT rebuild_layer_catalog($1)', [cat])
+      expect(JSON.stringify(await summary())).toBe(before)
+      await pool.query('DELETE FROM layers WHERE id = $1', [cat])
+      const { rows: [r] } = await pool.query(
+        `SELECT (SELECT count(*) FROM layer_schema WHERE layer_id = $1)::int AS s,
+                (SELECT count(*) FROM layer_catalog WHERE layer_id = $1)::int AS c`, [cat])
+      expect(r).toEqual({ s: 0, c: 0 })
+    })
+
+    it('rejects values outside the allowed types and kinds', async () => {
+      const l = randomUUID()
+      await pool.query(`INSERT INTO layers (id, label, color, shape, fields, row_count)
+        VALUES ($1, 'C', '#00E5FF', 'circle', '[]', 0)`, [l])
+      await expect(pool.query(
+        `INSERT INTO layer_schema (layer_id, field_key, position, label, data_type) VALUES ($1, 'c0', 0, 'x', 'string')`, [l]),
+      ).rejects.toThrow(/data_type/)
+      await pool.query(`INSERT INTO layer_schema VALUES ($1, 'c0', 0, 'x', 'text')`, [l])
+      await expect(pool.query(
+        `INSERT INTO layer_catalog (layer_id, field_key, value_count, missing_count, filter_kind, options)
+         VALUES ($1, 'c0', 1, 0, 'select', NULL)`, [l]),
+      ).rejects.toThrow(/options_shape/)
+    })
+  })
+
   it('reads a viewport through the GiST index on a larger layer', async () => {
     const big = randomUUID()
     await pool.query(`INSERT INTO layers (id, label, color, shape, fields, row_count)

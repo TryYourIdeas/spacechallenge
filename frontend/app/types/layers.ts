@@ -7,6 +7,25 @@ export interface LayerField {
   unit?: string
 }
 
+/** Data type of a field, from the server's layer schema. */
+export type FieldDataType = 'number' | 'boolean' | 'text' | 'date'
+
+/** Which filter suits a field: select = text with fewer than 20 distinct values (combobox). */
+export type FilterKind = 'select' | 'range' | 'boolean' | 'date_range' | 'text'
+
+/** Schema and data catalog of one field of a server layer. */
+export interface FieldCatalog {
+  key: string
+  dataType: FieldDataType
+  filterKind: FilterKind
+  valueCount: number
+  missingCount: number
+  distinctCount: number | null
+  min: number | string | null
+  max: number | string | null
+  options: string[] | null
+}
+
 /** One table row. `latitude`/`longitude` are WGS84 decimal degrees. */
 export interface LayerRow {
   id: string
@@ -37,6 +56,8 @@ export interface Layer extends LayerMeta {
   rows: LayerRow[]
   /** Rows dropped because their coordinates were missing or out of range. */
   skipped: number
+  /** Server layers: the catalog of each field (absent for static layers). */
+  catalog?: FieldCatalog[]
   /** Set for layers stored on the server: only a summary is loaded. */
   remote?: { rowCount: number; bounds: LatLngBoundsTuple | null }
 }

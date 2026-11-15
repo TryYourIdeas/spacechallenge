@@ -47,6 +47,20 @@ describe('importCsvFile', () => {
     expect(log).not.toContain('ROLLBACK')
   })
 
+  it('rebuilds the schema and data catalog inside the same transaction, before COMMIT', async () => {
+    const { pool, log } = fakePool()
+    await importCsvFile(pool, await write('cat.csv', GOOD))
+    expect(log).toContain('SELECT rebuild_layer_catalog($1)')
+    expect(log.indexOf('SELECT rebuild_layer_catalog($1)')).toBeLessThan(log.indexOf('COMMIT'))
+  })
+
+  it('rolls back when building the catalog fails', async () => {
+    const { pool, log } = fakePool({ failOn: /rebuild_layer_catalog/ })
+    await expect(importCsvFile(pool, await write('cat-fail.csv', GOOD))).rejects.toThrow('boom')
+    expect(log).toContain('ROLLBACK')
+    expect(log).not.toContain('COMMIT')
+  })
+
   it('reports replaced when an existing layer was deleted', async () => {
     const { pool } = fakePool({ deleted: 1 })
     expect((await importCsvFile(pool, await write('again.csv', GOOD))).replaced).toBe(true)

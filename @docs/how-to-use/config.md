@@ -144,9 +144,11 @@ Limits of serverless hosting:
   migration, apply it to the database Vercel uses **before or right after
   deploying**: `DATABASE_URL=<that database> scripts/migrate.sh` (or
   `cd frontend && npm run migrate`). It is idempotent and prints what it applied.
-  Release `d2f1fc7` needs `0004_geography_index.sql`: without it the cross-layer
-  proximity filter is too slow (requests time out). The index build briefly blocks
-  writes (imports) but not reads.
+  `0004_geography_index.sql` (needed for the cross-layer proximity filter, which
+  times out without it) builds an index that briefly blocks writes (imports) but not
+  reads. `0005_layer_schema_catalog.sql` creates the schema/catalog tables and
+  backfills every layer (about 30 s per 120k points); until it runs, the API returns
+  no catalog and the filters fall back to their generic defaults.
 - Import data from your machine with the script (below); Vercel serves what is
   in the database.
 - The API is read-only but has no authentication (see below); a public Vercel URL exposes all layer data. Enable Vercel Deployment Protection if the data is private.

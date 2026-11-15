@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatValue, isValidCoordinate, parseClusterResponse, parseLayer, parseLayerIndex, parsePointList, parsePointRow, parseRemoteLayer } from '../app/utils/layers'
+import { formatValue, isValidCoordinate, parseCatalog, parseClusterResponse, parseLayer, parseLayerIndex, parsePointList, parsePointRow, parseRemoteLayer } from '../app/utils/layers'
 import type { LayerMeta } from '../app/types/layers'
 
 const meta: LayerMeta = { id: 'a', label: 'A', description: '', shape: 'circle', color: '#00E5FF', source: 'a.json' }
@@ -97,5 +97,35 @@ describe('parsePointList / parsePointRow', () => {
   it('normalises a point row id and rejects bad coordinates', () => {
     expect(parsePointRow({ id: 5, latitude: 1, longitude: 2, c0: 'x' })).toEqual({ id: '5', latitude: 1, longitude: 2, c0: 'x' })
     expect(() => parsePointRow({ id: 5, latitude: 100, longitude: 2 })).toThrow()
+  })
+})
+
+describe('parseCatalog and remote layers', () => {
+  const entry = { key: 'c1', dataType: 'text', filterKind: 'select', valueCount: 5, missingCount: 1, distinctCount: 2, min: null, max: null, options: ['a', 'b'] }
+
+  it('keeps valid entries and drops malformed ones', () => {
+    const out = parseCatalog([
+      entry,
+      { ...entry, key: 'c2', dataType: 'string' }, // not a schema type
+      { ...entry, key: 'c3', filterKind: 'slider' },
+      { ...entry, key: 'c4', dataType: 'number', filterKind: 'range', min: 1, max: 9, distinctCount: null, options: null },
+      { ...entry, key: 'c5', options: [1, 2] }, // options must be strings
+      'junk', null,
+    ])
+    expect(out.map(c => c.key)).toEqual(['c1', 'c4', 'c5'])
+    expect(out[0]).toMatchObject({ dataType: 'text', filterKind: 'select', options: ['a', 'b'] })
+    expect(out[1]).toMatchObject({ min: 1, max: 9, distinctCount: null })
+    expect(out[2]!.options).toBeNull()
+  })
+
+  it('returns an empty catalog when the server sent none', () => {
+    expect(parseCatalog(undefined)).toEqual([])
+    expect(parseCatalog({})).toEqual([])
+  })
+
+  it('attaches the catalog to a server layer', () => {
+    const layer = parseRemoteLayer(meta, { fields: [{ key: 'c1', label: 'x', type: 'string' }], catalog: [entry], rowCount: 5, skipped: 0, bounds: null })
+    expect(layer.catalog).toHaveLength(1)
+    expect(parseRemoteLayer(meta, { fields: [], rowCount: 0, bounds: null }).catalog).toEqual([])
   })
 })

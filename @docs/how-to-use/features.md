@@ -16,6 +16,31 @@ What Layer Explorer does today. Keep this list in step with the code.
   with retry.
 - Clicking a point opens a closeable dialog on the right of the map with all its fields (close with the × button, Close, or Esc).
 
+## Apply filters
+
+- Filter edits (global region, proximity, per-layer rules) are drafts until the
+  user presses **Apply filters** (sticky at the top of the panel; Enter in the
+  proximity field also applies). An always-visible status says "Changes not applied
+  yet", "Filters applied (N)" or "No filters applied"; the button is disabled when
+  there is nothing to apply. Counts, the map and the "N active" badge reflect the
+  applied filters only. **Clear all** applies immediately; auto-fit is not a filter
+  and applies at once.
+
+## Layer schema and data catalog
+
+- Every imported layer gets a schema (field types: number, boolean, text, date) and a
+  data catalog computed from its values at import time. The catalog says which
+  filter suits each field: numbers get a **range** (real min/max), text fields with
+  fewer than 20 distinct values are **select** fields and show a combobox of their
+  values, other text stays a free "contains" box. Booleans offer false/true. Missing
+  values (null, empty, NA, -999) are ignored in options and ranges.
+- Filter panels use it: "Filter another column" lists the real values, and numeric
+  sliders start at the field's real minimum and maximum. Date fields are catalogued
+  (`date_range`) but still use the text filter in the UI.
+- API: `GET /api/layers/:id` returns `catalog` with `key`, `dataType`, `filterKind`,
+  `valueCount`, `missingCount`, `distinctCount`, `min`, `max`, `options` per field.
+- Re-importing a CSV rebuilds the catalog. See `backend/services/database/SCHEMA.md`.
+
 ## Cross-layer proximity filter
 
 - Global filter "Proximity between layers" (km, 0.1 to 20,000; empty = off). With it

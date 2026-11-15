@@ -7,7 +7,11 @@ import {
   countriesForContinent,
   defaultGlobalFilter,
   defaultLayerFilter,
+  catalogOf,
   detectLayerCapabilities,
+  distinctCategoryOptions,
+  fieldRangeBounds,
+  filtersDiffer,
   filterLayerRows,
   isSentinelOrNull,
   matchesGlobalFilter,
@@ -198,5 +202,55 @@ describe('matchesLayerFilter & filterLayerRows', () => {
       expect(buildServerFilterPayload(A, prox(null), undefined, [{ layer: B }])).toBeNull()
       expect(buildServerFilterPayload(A, prox(0), undefined, [{ layer: B }])).toBeNull()
     })
+  })
+})
+
+describe('filtersDiffer', () => {
+  const base = () => ({ global: defaultGlobalFilter(), layers: {} as Record<string, ReturnType<typeof defaultLayerFilter>> })
+  it('is false for equal filters and ignores the auto-fit preference', () => {
+    expect(filtersDiffer(base(), base())).toBe(false)
+    const b = base(); b.global.autoFit = false
+    expect(filtersDiffer(base(), b)).toBe(false)
+  })
+  it('detects global and per-layer changes', () => {
+    const g = base(); g.global.proximityKm = 5
+    expect(filtersDiffer(base(), g)).toBe(true)
+    const c = base(); c.global.country = 'BR'
+    expect(filtersDiffer(base(), c)).toBe(true)
+    const l = base(); l.layers.a = { ...defaultLayerFilter(), minerals: ['Olivine'] }
+    expect(filtersDiffer(base(), l)).toBe(true)
+  })
+})
+
+describe('catalog-driven filters', () => {
+  const field = (key: string, label: string, type: 'string' | 'number') => ({ key, label, type })
+  const cat = (o: object) => ({ valueCount: 10, missingCount: 0, distinctCount: null, min: null, max: null, options: null, ...o })
+  const layer: Layer = {
+    id: 'r', label: 'R', description: '', shape: 'circle', color: '#00E5FF', source: '/api/layers/r',
+    fields: [field('c0', 'depth', 'number'), field('c1', 'setting', 'string'), field('c2', 'flag', 'string'), field('c3', 'tiny', 'number')],
+    rows: [], skipped: 0, remote: { rowCount: 10, bounds: null },
+    catalog: [
+      cat({ key: 'c0', dataType: 'number', filterKind: 'range', min: 12.3, max: 4801.2 }),
+      cat({ key: 'c1', dataType: 'text', filterKind: 'select', distinctCount: 2, options: ['LAND', 'SEA'] }),
+      cat({ key: 'c2', dataType: 'boolean', filterKind: 'boolean', distinctCount: 2 }),
+      cat({ key: 'c3', dataType: 'number', filterKind: 'range', min: 0.1, max: 0.9 }),
+    ],
+  }
+
+  it('finds the catalog entry of a field', () => {
+    expect(catalogOf(layer, 'c1')?.filterKind).toBe('select')
+    expect(catalogOf(layer, 'zz')).toBeUndefined()
+  })
+
+  it('uses real numeric bounds instead of the generic -100..5000 default', () => {
+    expect(fieldRangeBounds(layer, layer.fields[0]!)).toEqual({ min: 12, max: 4802, step: 1 })
+    expect(fieldRangeBounds(layer, layer.fields[3]!)).toEqual({ min: 0, max: 1, step: 0.01 })
+    expect(fieldRangeBounds({ ...layer, catalog: [] }, layer.fields[0]!)).toEqual({ min: -100, max: 5000, step: 1 })
+  })
+
+  it('offers the select options as combobox values, and false/true for booleans', () => {
+    expect(distinctCategoryOptions(layer, layer.fields[1]!)).toEqual(['LAND', 'SEA'])
+    expect(distinctCategoryOptions(layer, layer.fields[2]!)).toEqual(['false', 'true'])
+    expect(distinctCategoryOptions({ ...layer, catalog: [] }, layer.fields[1]!)).toEqual([])
   })
 })

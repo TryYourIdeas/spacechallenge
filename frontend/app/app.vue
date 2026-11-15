@@ -1,14 +1,23 @@
 <script setup lang="ts">
 import type { GlobalFilter, Layer, LayerFilter, SelectedPoint } from '~/types/layers'
-import { defaultGlobalFilter, matchesGlobalFilter, matchesLayerFilter } from '~/utils/filters'
+import { defaultGlobalFilter, filtersDiffer, matchesGlobalFilter, matchesLayerFilter } from '~/utils/filters'
 
 const { indexState, indexError, metas, states, visible, toggle, reload, retryLayer, apiError, fetchClusters, fetchPoints, fetchPoint } = useLayers()
 const selected = shallowRef<SelectedPoint | null>(null)
 const form = ref<{ focus: () => void }>()
 const mapView = ref<{ fitFiltered: () => void }>()
 
+// `draft*` is what the panel edits; `globalFilter`/`layerFilters` are the APPLIED filters that
+// drive the map, the queries and the counts. "Apply filters" copies draft to applied.
+const draftGlobal = ref<GlobalFilter>(defaultGlobalFilter())
+const draftLayers = ref<Record<string, LayerFilter>>({})
 const globalFilter = ref<GlobalFilter>(defaultGlobalFilter())
 const layerFilters = ref<Record<string, LayerFilter>>({})
+const dirty = computed(() => filtersDiffer(
+  { global: draftGlobal.value, layers: draftLayers.value },
+  { global: globalFilter.value, layers: layerFilters.value },
+))
+const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 const remoteCounts = ref<Record<string, number>>({})
 
 const readyLayers = computed<Layer[]>(() =>
@@ -19,18 +28,26 @@ const readyLayers = computed<Layer[]>(() =>
 )
 
 function updateGlobalFilter(next: GlobalFilter) {
-  globalFilter.value = next
-  checkSelectionAgainstFilters()
+  draftGlobal.value = next
+  // Auto-fit is a map preference, not a filter: it takes effect immediately.
+  if (next.autoFit !== globalFilter.value.autoFit) globalFilter.value = { ...globalFilter.value, autoFit: next.autoFit }
 }
 
 function updateLayerFilter(id: string, filter: LayerFilter) {
-  layerFilters.value = { ...layerFilters.value, [id]: filter }
+  draftLayers.value = { ...draftLayers.value, [id]: filter }
+}
+
+function applyFilters() {
+  globalFilter.value = clone(draftGlobal.value)
+  layerFilters.value = clone(draftLayers.value)
   checkSelectionAgainstFilters()
 }
 
+/** Clearing is applied at once: there is nothing left to review. */
 function resetAllFilters() {
-  globalFilter.value = defaultGlobalFilter()
-  layerFilters.value = {}
+  draftGlobal.value = defaultGlobalFilter()
+  draftLayers.value = {}
+  applyFilters()
 }
 
 function checkSelectionAgainstFilters() {
@@ -104,8 +121,11 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
         v-else
         :metas="metas" :states="states" :visible="visible"
         :api-error="apiError"
-        :global-filter="globalFilter" :layer-filters="layerFilters" :remote-counts="remoteCounts"
+        :global-filter="draftGlobal" :layer-filters="draftLayers"
+        :applied-global-filter="globalFilter" :applied-layer-filters="layerFilters" :dirty="dirty"
+        :remote-counts="remoteCounts"
         @toggle="toggle" @retry="retryLayer"
+        @apply="applyFilters"
         @update:global-filter="updateGlobalFilter"
         @update:layer-filter="updateLayerFilter"
         @reset-all-filters="resetAllFilters"

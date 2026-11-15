@@ -70,6 +70,8 @@ export async function importCsvFile(
       if (batch.length >= BATCH) await flush()
     }
     await flush()
+    // Schema and data catalog of the new layer, computed from the stored points in this transaction.
+    await client.query('SELECT rebuild_layer_catalog($1)', [layerId])
     await client.query('COMMIT')
     return { layerId, label, imported: a.valid, skipped: a.skipped, replaced: (del.rowCount ?? 0) > 0 }
   } catch (e) {

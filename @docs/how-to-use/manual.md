@@ -11,6 +11,16 @@ How to use Layer Explorer in the browser. Start the application first; see
   and any load error.
 - **Point details**: shows the fields of the selected point.
 
+## Apply filters
+
+Changing a filter (region, proximity, or anything under a layer's **Filters**)
+does not change the map by itself. The **Apply filters** button at the top of the
+panel turns cyan and the text next to it reads "Changes not applied yet". Click
+the button (or press Enter in the proximity field) to apply: the map and the
+point counts update, and the text reads "Filters applied (N)". **Clear all**
+removes every filter and applies that at once. The auto-fit checkbox is a map
+setting and takes effect immediately.
+
 ## Keep only points that are close to another layer
 
 In **Global Filters**, type a distance in **Proximity between layers** (or use
