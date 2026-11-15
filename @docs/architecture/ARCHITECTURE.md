@@ -17,12 +17,11 @@ flowchart LR
   end
   subgraph vm["Docker VM (Compose project)"]
     caddy[Caddy :80/:443]
-    app["app<br/>Nuxt/Nitro, APP_ROLE=web"]
-    worker["worker<br/>same image, APP_ROLE=worker"]
+    app["app<br/>Nuxt/Nitro (read-only API)"]
     pg[(postgres<br/>PostgreSQL + pgvector)]
-    redis[(queue<br/>Redis, AOF)]
-    data[/"DATA_DIR (read-only)<br/>*.csv"/]
   end
+  cli["developer machine<br/>scripts/import_csv.sh"]
+  csv[/"*.csv"/]
   osm[(OpenStreetMap tiles)]
 
   user -->|HTTPS| caddy --> app
@@ -30,11 +29,8 @@ flowchart LR
   spa -.->|"HTTPS + CORS (NUXT_PUBLIC_API_BASE)"| caddy
   user -->|tiles| osm
   app --> pg
-  app --> redis
-  worker --> pg
-  worker --> redis
-  app --> data
-  worker --> data
+  csv --> cli
+  cli -->|DATABASE_URL| pg
 ```
 
 Two ways to serve the UI, selected at build time:
@@ -45,7 +41,7 @@ Two ways to serve the UI, selected at build time:
 | Split | `nuxt generate` | Cloudflare Pages | `NUXT_PUBLIC_API_BASE` = API HTTPS origin; API allows it via `CORS_ORIGINS` |
 
 Browsers only talk to the API (and to the OSM tile server). They never reach
-PostgreSQL or Redis.
+PostgreSQL.
 
 ## 2. Repository layout
 
@@ -53,14 +49,13 @@ PostgreSQL or Redis.
 |---|---|
 | `frontend/app/` | Vue 3 SPA (`ssr: false`): components, `useLayers` composable, types, layer parsing |
 | `frontend/public/data/` | Built-in static layers (`layers.json` index + one JSON table per layer) |
-| `frontend/server/` | Nitro server: REST API, SSE stream, health routes, migrations runner, import worker |
-| `frontend/tests/` | Vitest: layer parsing, static data, CSV parsing, SSE hub |
-| `frontend/Dockerfile` | Builds the Nuxt project into one image used by `app` and `worker` |
+| `frontend/server/` | Nitro server: read-only REST API, health routes, migrations runner, CSV import code used by the script |
+| `frontend/tests/` | Vitest: layer parsing, static data, CSV parsing, import |
+| `frontend/Dockerfile` | Builds the Nuxt project into the `app` image |
+| `frontend/scripts/import-csv.ts` | CLI import (`npm run import -- <file.csv>`) |
 | `backend/docker/` | Compose topology (`compose.yaml`, `compose.vm.yaml`), `compose.sh` wrapper, `Caddyfile`, `.env.example` |
 | `backend/services/database/` | `init/` (new-volume SQL), `migrations/` (forward-only), `SCHEMA.md` |
-| `backend/services/queue/` | Redis notes |
-| `data/` | Source CSV files offered for import |
-| `scripts/` | `deploy_frontend.sh` (Pages), `deploy_backend.sh` + `vm_activate.sh` (VM), `start.sh` menu |
+| `scripts/` | `deploy_frontend.sh` (Pages), `deploy_backend.sh` + `vm_activate.sh` (VM), `import_csv.sh` (CLI import), `start.sh` menu |
 | `@docs/` | Single documentation directory: architecture, how-to-use, bootstrap, deployment, research notes and papers (`research/`), `JOURNAL.csv` |
 
 ## 3. Frontend
@@ -77,115 +72,73 @@ Nuxt 4 / Vue 3 SPA with Leaflet. Geist fonts and design tokens live in
      summary), marking them `imported: true`. Their points are **not** loaded
      whole: `MapView` asks `/clusters` for the current viewport on every
      `moveend` (see §5a);
-  3. lists importable files (`GET /api/files`) and starts imports
-     (`POST /api/imports`);
-  4. opens `EventSource('/api/events')` and applies `snapshot`/`task` events,
-     keeping the newest `updatedAt` per task. A task transitioning to `done`
-     triggers a re-sync of server layers. A snapshot also re-syncs, which covers
-     SSE reconnects;
-  5. removes layers (`DELETE /api/layers/:id` for imported ones; built-in ones
+  3. removes layers (`DELETE /api/layers/:id` for imported ones; built-in ones
      are only dropped from the session).
 - `utils/layers.ts` validates every payload (shape, colour, coordinates) before
   it reaches the map; invalid layers surface as per-layer error states with retry.
 - Each layer has a colour **and** a marker shape so state is not colour-only.
 
-Per-layer states are `loading | error | ready`; the index has its own state; SSE
-connectivity (`eventsOnline`) and API failures (`apiError`) are shown separately
+Per-layer states are `loading | error | ready`; the index has its own state; API
+failures (`apiError`) are shown separately
 so static layers keep working when the API is down.
 
 ## 4. API (Nitro, `frontend/server/`)
 
 The API is part of the Nuxt project and runs in the same image as the UI. The
-Compose `app` service sets `APP_ROLE=web`.
+Compose `app` service serves it. The API is read-only apart from layer deletion;
+import is a local script (§5).
 
 | Route | Purpose |
 |---|---|
-| `GET /api/files` | Lists regular, non-hidden `*.csv` files directly in `SOURCE_DIR` |
-| `POST /api/imports` `{file}` | Validates the name against that listing, inserts a `tasks` row, enqueues a job, returns `202` + `Location: /api/tasks/:id` |
-| `GET /api/tasks`, `GET /api/tasks/:id` | Task history (50 newest) / one task |
 | `GET /api/layers`, `GET /api/layers/:id` | Layer index / one layer's summary (`fields`, `skipped`, `rowCount`, `bounds`; no rows) |
 | `GET /api/layers/:id/clusters?bbox&zoom` | Viewport points grouped into PostGIS grid cells |
 | `GET /api/layers/:id/points?bbox` | Up to 50 individual points in a small box |
 | `GET /api/layers/:id/points/:row` | Every column of one point |
-| `DELETE /api/layers/:id` | Deletes a layer (points cascade); task row stays as history |
-| `GET /api/events` | Server-Sent Events: `snapshot` (20 newest tasks), then `task`, plus `ping` every 15 s |
-| `GET /healthz`, `GET /readyz` | Liveness / readiness (`readyz` checks PostgreSQL and Redis) |
+| `DELETE /api/layers/:id` | Deletes a layer (points cascade) |
+| `GET /healthz`, `GET /readyz` | Liveness / readiness (`readyz` checks PostgreSQL) |
 
 Cross-cutting behaviour:
 
-- **Input safety**: ids must be UUIDs (`idParam`); import names must match an
-  exact directory listing entry, so no path can be supplied by the client. Errors
+- **Input safety**: ids must be UUIDs (`idParam`). Errors
   use `fail()`, whose message is client-safe.
 - **CORS** (`middleware/cors.ts`): only for `/api/*`, only origins in
-  `CORS_ORIGINS`, methods GET/POST/DELETE.
+  `CORS_ORIGINS`, methods GET/DELETE.
 - **Startup** (`plugins/services.ts`): load config, wait for PostgreSQL, run
-  migrations, then start the worker only when `APP_ROLE` is not `web`. If config
+  migrations (skipped on Vercel). If config
   is missing, the API disables itself with a warning so `nuxt dev` still serves UI.
-- **Shutdown**: a Nitro `close` hook stops the worker, then closes the SSE hub,
-  queue, Redis and pool.
+- **Shutdown**: a Nitro `close` hook closes the pool.
 - **Connections** (`utils/services.ts`): lazily created, process-wide
-  `pg.Pool` (max 8), ioredis, BullMQ `Queue`, SSE hub.
+  `pg.Pool` (max 8).
 - **Logging**: structured logs through `utils/log.ts`.
-- **No authentication** is implemented. Anyone who can reach the API can start
-  imports and delete layers. See gaps.
+- **No authentication** is implemented. Anyone who can reach the API can
+  delete layers. See gaps.
 
-## 5. Asynchronous import pipeline
+## 5. CSV import (script)
 
-```mermaid
-sequenceDiagram
-  autonumber
-  participant B as Browser
-  participant A as app (web)
-  participant P as PostgreSQL
-  participant R as Redis
-  participant W as worker
+Import runs outside the web app, so Vercel (or any web host) only presents and
+filters data. `scripts/import_csv.sh <file.csv>` (or `npm run import -- <file.csv>`
+in `frontend/`) runs `frontend/scripts/import-csv.ts` with `vite-node`:
 
-  B->>A: POST /api/imports {file}
-  A->>P: INSERT tasks (queued)
-  A->>R: BullMQ add (jobId = task id)
-  A->>R: PUBLISH task-events
-  A-->>B: 202 + task
-  R-->>W: job
-  W->>P: UPDATE tasks → processing (attempts+1)
-  W->>R: PUBLISH progress
-  W->>W: stream CSV (analyze, then points)
-  W->>P: BEGIN; DELETE layer; INSERT layer; INSERT points in batches of 1000
-  W->>P: UPDATE tasks → done; COMMIT
-  W->>R: PUBLISH task-events
-  R-->>A: message (SSE hub subscriber)
-  A-->>B: SSE `task` event
-  B->>A: GET /api/layers, /api/layers/:id (summary)
-  B->>A: GET /api/layers/:id/clusters?bbox&zoom (per viewport)
-```
+1. resolve `DATABASE_URL` from the environment, else `backend/docker/.env`
+   (`utils/cli.ts`; the password is masked in output);
+2. validate the path (exists, regular file, `.csv`, not empty);
+3. apply pending migrations (`utils/db.ts`);
+4. `importCsvFile` (`utils/import.ts`): stream-scan the file (`analyze`), then in
+   one transaction `DELETE` the layer with the same id, `INSERT` the layer and
+   `INSERT` points in batches of 1000.
 
-Design properties (AGENTS.md: idempotent, retry-bounded, replay-safe, durable):
+Design properties (AGENTS.md: idempotent, replay-safe, durable):
 
-- **PostgreSQL is the system of record.** The `tasks` row is written before the
-  job is enqueued. Redis carries delivery and progress notifications only.
-- **Idempotency**: BullMQ `jobId = task id`, so a duplicate enqueue is a no-op.
-  `layers.id = tasks.id`, so a replay deletes and rewrites the same layer. A task
-  already `done` is skipped.
-- **Atomic result**: layer, points and the `done` status are written in one
-  transaction. A failed or crashed attempt leaves no partial layer.
-- **Bounded retries**: `IMPORT_ATTEMPTS` (default 3) with exponential backoff
-  (2 s base). File problems raise `ImportError` (an `UnrecoverableError`) and are
-  not retried. On the final failure the task becomes `failed` with a user-safe
-  message; unexpected errors get a generic message and details go to logs.
-- **Lost-job recovery**: every 60 s the worker re-enqueues tasks still
-  `queued`/`processing` and untouched for `IMPORT_STALE_SECONDS` (default 120).
-  This covers a crash between insert and enqueue or a Redis flush. The same
-  `jobId` makes it a no-op for jobs BullMQ still tracks.
-- **Enqueue failure**: the API marks the task `failed` and returns `503`.
-- **Single active import per file**: partial unique index on
-  `tasks(source_name)` for active statuses; a violation returns `409`.
-- **Backpressure**: worker concurrency 2; progress updates throttled to one per
-  400 ms; SSE capped at 200 clients (`503` beyond that).
+- **PostgreSQL is the system of record**; there is no queue or worker.
+- **Idempotency**: the layer id is a UUIDv5 of the file name, so re-importing a
+  file replaces its layer.
+- **Atomic result**: layer and points commit together. A failure rolls back and
+  the script exits non-zero; no partial layer remains.
 - **CSV rules** (`utils/csv.ts`): header-based detection of latitude, longitude
   and name columns; rows with missing or out-of-range coordinates are counted as
   skipped; at most 500 columns; columns are keyed by position (`c<n>`) so
   headers like `id` or `lat` cannot collide.
-- **Liveness**: the worker touches `/tmp/heartbeat` every 10 s; its Compose
-  health check fails if the file is older than 30 s.
+- The `tasks` table (migrations `0001`/`0002`) is unused history.
 
 ## 5a. Viewport clustering
 
@@ -247,7 +200,7 @@ erDiagram
 - There is no foreign key from `layers` to `tasks`; the link is the shared id.
   Deleting a layer leaves the task row as history.
 - **Migrations**: `0001` creates `import_jobs`, `layers`, `layer_points`; `0002`
-  renames `import_jobs` to `tasks` and adds `kind` and progress columns; `0003`
+  renames `import_jobs` to `tasks` and adds `kind` and progress columns (the table is no longer written); `0003`
   enables PostGIS and adds the generated `geom` column and its GiST index. They are
   applied by the app at startup (`utils/db.ts`), each in a transaction, recorded
   in `schema_migrations`, serialized with advisory lock `727001`. Migrations are
@@ -258,7 +211,7 @@ erDiagram
   runs only on a new volume. No vector columns exist yet. When added, document
   model, dimension, metric/operator, index, lineage, refresh and deletion in
   `SCHEMA.md` and enforce the dimension in PostgreSQL. Do not move vectors to
-  JSON or Redis.
+  JSON.
 - The PostgreSQL image defaults to `jlabrada/postgis-pgvector:0.1.0` (PostGIS plus
   pgvector) and is overridable with `POSTGRES_IMAGE`; any override must include both extensions. PostGIS is used for the viewport index and grid clustering only.
 
@@ -268,16 +221,13 @@ erDiagram
 
 | Service | Image | Notes |
 |---|---|---|
-| `app` | built from `frontend/` via `frontend/Dockerfile` | `APP_ROLE=web`; port bound to `127.0.0.1` locally; health check on `/readyz` |
-| `worker` | same image | `APP_ROLE=worker`; heartbeat health check; 768 MB limit, 30 s grace |
+| `app` | built from `frontend/` via `frontend/Dockerfile` | port bound to `127.0.0.1` locally; health check on `/readyz` |
 | `postgres` | `${POSTGRES_IMAGE}` (default `jlabrada/postgis-pgvector:0.1.0`) | named volume `postgres_data`; `init/` mounted; `pg_isready` check |
-| `queue` | `redis:7-alpine` | `--appendonly yes`; named volume `queue_data` |
 
-Hardening on both app services: non-root `node` user, `read_only` root with
+Hardening on the app service: non-root `node` user, `read_only` root with
 `/tmp` tmpfs, `cap_drop: ALL`, `no-new-privileges`, memory limits, graceful stop
-periods. Sibling services are addressed by Compose DNS (`postgres`, `queue`),
-never `localhost`. The data directory (`DATA_DIR`, default `../../data`) and the
-migrations directory are mounted read-only.
+periods. Sibling services are addressed by Compose DNS (`postgres`),
+never `localhost`. The migrations directory is mounted read-only.
 
 The Dockerfile is multi-stage: `npm ci` and `nuxt build` in a build stage, then
 only `.output` is copied into a minimal `node:22-alpine` runtime.
@@ -290,11 +240,9 @@ ignored `compose.local.yaml` override. Runtime settings:
 
 | Variable | Meaning |
 |---|---|
-| `DATABASE_URL`, `QUEUE_URL` | Required; internal DNS URLs |
-| `APP_ROLE` | `web`, `worker` or `all` (default when unset, used by `nuxt dev`) |
-| `SOURCE_DIR`, `MIGRATIONS_DIR` | Container paths, with repo-relative fallbacks for dev |
+| `DATABASE_URL` | Required; internal DNS URL, or the remote database |
+| `MIGRATIONS_DIR` | Container path, with a repo-relative fallback for dev |
 | `CORS_ORIGINS` | Allowed browser origins |
-| `IMPORT_ATTEMPTS`, `IMPORT_STALE_SECONDS` | Retry bound / stale-task threshold |
 
 ### VM (`compose.vm.yaml` + scripts)
 
@@ -309,9 +257,8 @@ ignored `compose.local.yaml` override. Runtime settings:
   builds on the VM, starts with `--wait`, checks the HTTPS health URL, and only
   then moves the `current` symlink. Volumes are never deleted. There is no
   automatic rollback and no zero-downtime guarantee (single VM).
-- The VM does not contain the repo's `data/` directory: operators place CSVs in a
-  persistent directory and set its absolute path as `DATA_DIR` in
-  `shared/backend.env`.
+- The VM holds no CSV files: data is imported from a developer machine with
+  `scripts/import_csv.sh` against the database.
 - `scripts/deploy_frontend.sh` uploads a static build to Cloudflare Pages
   (requires `nuxt generate` output and `NUXT_PUBLIC_API_BASE` at build time).
 
@@ -319,41 +266,33 @@ ignored `compose.local.yaml` override. Runtime settings:
 
 - Vitest in `frontend/` (`npm test`): `layers.test.ts`, `data.test.ts`
   (static layer contracts), `viewport.test.ts`, `tests/server/csv.test.ts`,
-  `tests/server/sse.test.ts`, `tests/server/clusters.test.ts`, and a PostGIS
+  `tests/server/import.test.ts`, `tests/server/cli.test.ts`, `tests/server/clusters.test.ts`, and a PostGIS
   integration test (`tests/server/points.integration.test.ts`, runs only when
   `TEST_DATABASE_URL` is set).
 - `npm run typecheck` runs `nuxt typecheck`.
 - Compose changes are validated with `./backend/docker/compose.sh config --quiet`.
 - Not yet present: Gherkin acceptance tests, mutation tests, coverage and
-  complexity gates, and integration tests for the import/retry/stale-sweep paths.
+  complexity gates, and a database-backed integration test for `importCsvFile`.
   AGENTS.md asks for these over time.
 
 ## 9. Known gaps and doc drift
 
-1. ~~**API location**~~ Resolved: the API and worker live in `frontend/server/`,
+1. ~~**API location**~~ Resolved: the API lives in `frontend/server/`,
    the image is defined by `frontend/Dockerfile`, and `AGENTS.md`, the READMEs and
    `@docs/` describe this.
-2. **No authentication or authorization** on any route, including import and
+2. **No authentication or authorization** on any route, including
    delete. Acceptable only on a trusted network; add auth before public exposure.
 3. **Stale local `.env`**: files copied from an older `.env.example` may set
    `POSTGRES_IMAGE=pgvector/pgvector:pg16`, which lacks PostGIS and breaks
    migration `0003`. Update it to the current `.env.example` value.
-4. **`@docs/DEPLOYMENT.md`** still calls the API a placeholder and mentions an
-   `api` service and a `docs/` layout that predate the `app`/`worker` split.
-5. **Single-writer assumption**: one `worker` instance is expected. Scaling it
-   is safe for correctness (idempotent jobs, transactional writes) but the stale
-   sweep would run per instance.
-6. **Layer styling** is chosen at import time from `count(layers) % 4`, so
+4. **Layer styling** is chosen at import time from `count(layers) % 4`, so
    colours can repeat after deletions.
-7. **Map tiles** come from the public OpenStreetMap tile server, an external
+5. **Map tiles** come from the public OpenStreetMap tile server, an external
    runtime dependency that is not suited to heavy production traffic.
-8. **No backups** are configured for PostgreSQL, Redis or the server env file.
+6. **No backups** are configured for PostgreSQL or the server env file.
 
 ## 10. Extension points
 
-- New background task kinds: add a `kind` value to `tasks`, a queue/processor
-  beside `utils/worker.ts`, and publish through `utils/events.ts` so SSE and the
-  UI pick it up unchanged.
 - Vector features: add a migration with a fixed-dimension `vector(n)` column and
   index, document it in `SCHEMA.md`, keep embeddings in PostgreSQL.
 - New backend containers: follow `.agents/skills/add-backend-service`.

@@ -7,7 +7,7 @@ Pages deployment see [../DEPLOYMENT.md](../../@docs/DEPLOYMENT.md).
 ## Prerequisites
 
 - Docker with Compose v2 (full stack), or Node.js and npm (UI development only).
-- CSV files to import placed in the `data/` directory.
+- CSV files to import (anywhere on your machine) and `DATABASE_URL`; see [Importing data](#importing-data).
 
 ## Quick start (Docker)
 
@@ -26,20 +26,18 @@ Start, Build, Deploy backend, Deploy frontend and Exit.
 
 | Service | Role |
 | --- | --- |
-| `app` | `APP_ROLE=web`: SPA, `/api`, Server-Sent Events, `/healthz`, `/readyz` |
-| `worker` | `APP_ROLE=worker`: BullMQ consumer that runs CSV imports |
+| `app` | SPA, read-only `/api` (layers, clusters, points), `/healthz`, `/readyz` |
 | `postgres` | PostgreSQL with pgvector and PostGIS (image set by `POSTGRES_IMAGE`); system of record |
-| `queue` | Redis; queue transport and task-event channel |
 
-`app` and `worker` are the same image, built from `frontend/Dockerfile`.
-Database migrations are applied by the app at startup.
+The image is built from `frontend/Dockerfile`. Database migrations are applied by
+the app at startup. Data is loaded with the import script, not through the app.
 
 ## Environment files
 
 Copy `backend/docker/.env.example` to `backend/docker/.env` to change local
 defaults. `.env` is ignored by git; never commit secrets.
 `backend/docker/compose.local.yaml` is an ignored per-developer override (for
-example to publish Postgres/Redis ports for `nuxt dev`).
+example to publish the Postgres port for `nuxt dev`).
 
 ### Compose variables (`backend/docker/.env`)
 
@@ -48,10 +46,8 @@ example to publish Postgres/Redis ports for `nuxt dev`).
 | `API_PORT` | `8080` | Host port (bound to `127.0.0.1`) |
 | `API_CONTAINER_PORT` | `8080` | Port inside the container |
 | `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated browser origins allowed to call the API |
-| `DATA_DIR` | `../../data` | Host directory whose `*.csv` files can be imported (mounted read-only) |
 | `POSTGRES_IMAGE` | `jlabrada/postgis-pgvector:0.1.0` | Database image. Must provide both pgvector and PostGIS (migration `0003` creates the `postgis` extension); plain `pgvector/pgvector` images fail |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `app` / `app` / `app` | Local-only defaults; replace beyond local development |
-| `QUEUE_IMAGE` | `redis:7-alpine` | Queue image |
 | `DATABASE_URL` | (unset) | Optional external database instead of the bundled `postgres` |
 
 ### Application variables (read by `frontend/server/`)
@@ -59,17 +55,45 @@ example to publish Postgres/Redis ports for `nuxt dev`).
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DATABASE_URL` | required | PostgreSQL connection string |
-| `QUEUE_URL` | required | Redis connection string |
-| `APP_ROLE` | `all` | `web`, `worker` or `all` |
-| `SOURCE_DIR` | `/data/source` (container) or `../data` | Directory scanned for CSV files |
 | `MIGRATIONS_DIR` | `/app/migrations` or `backend/services/database/migrations` | Migration SQL |
 | `CORS_ORIGINS` | localhost:3000 origins | Allowed browser origins |
-| `IMPORT_ATTEMPTS` | `3` | Retry limit for a failing import job |
-| `IMPORT_STALE_SECONDS` | `120` | Idle time after which the worker re-enqueues a task |
 | `NUXT_PUBLIC_API_BASE` | empty | API origin for the SPA (empty = same origin); no trailing slash |
 
 Without `DATABASE_URL` the API disables itself; the SPA still shows the
 built-in static layers.
+
+### Using an external database
+
+Set `DATABASE_URL` in `backend/docker/.env` (ignored by git), for example
+`DATABASE_URL=postgres://user:password@host:5432/dbname`. Compose passes it to
+`app`; when unset it uses the bundled `postgres` service. The
+bundled `postgres` container still starts but is unused. For a VM, put the
+value in `shared/backend.env` instead.
+
+Requirements on the external database:
+
+- **Extensions.** Migrations run at app startup and execute
+  `CREATE EXTENSION IF NOT EXISTS` for `postgis` and `btree_gist` (migration
+  `0003`); `vector` (pgvector) is also needed. The server must have the
+  PostGIS and pgvector packages installed.
+- **Superuser step.** `postgis` is not a trusted extension, so a non-superuser
+  role fails with `permission denied to create extension "postgis"` / `Must be
+  superuser to create this extension`, and the app logs it at startup
+  with no schema created. A superuser must run this once in the target database
+  before the first start:
+
+  ```sql
+  CREATE EXTENSION IF NOT EXISTS postgis;
+  CREATE EXTENSION IF NOT EXISTS btree_gist;
+  CREATE EXTENSION IF NOT EXISTS vector;
+  ```
+
+  The migrations then find the extensions present and succeed as the normal
+  role, which also needs `CREATE` on the database/schema.
+- **Health check.** `/readyz` can report `ready` even when migrations failed,
+  so check `./backend/docker/compose.sh logs app` after the first start.
+- **Transport.** Port 5432 is plain text unless the server enforces SSL; append
+  `?sslmode=require` to the URL if it does.
 
 ## UI development
 
@@ -82,8 +106,8 @@ npm run typecheck
 npm run build        # static site in .output/public
 ```
 
-To use the API from `nuxt dev`, publish Postgres and Redis in
-`compose.local.yaml` and set `DATABASE_URL` and `QUEUE_URL`.
+To use the API from `nuxt dev`, publish Postgres in
+`compose.local.yaml` and set `DATABASE_URL`.
 
 The PostGIS integration test runs only when `TEST_DATABASE_URL` points at a
 PostgreSQL with PostGIS where the role may `CREATE DATABASE`.
@@ -99,7 +123,49 @@ PostgreSQL with PostGIS where the role may `CREATE DATABASE`.
   `BACKEND_DEPLOY_DIR`, `BACKEND_DOMAIN`; supports `--dry-run`).
   Server secrets live in `shared/backend.env` on the VM.
 
+## Deploying the Nuxt app to Vercel
+
+`frontend/vercel.json` builds the app with `npm run build:server`; Nitro detects
+Vercel and emits `.vercel/output` (SPA plus `/api`, `/healthz`, `/readyz` as
+functions). Verified by a containerised build only; no deployment was run.
+
+1. Import the repository in Vercel and set **Root Directory** to `frontend`.
+2. Set environment variables (Production and Preview):
+   - `DATABASE_URL`: the external PostgreSQL (see above; add `?sslmode=require`
+     if supported).
+   - `NUXT_PUBLIC_API_BASE` empty (same origin). Nothing else is needed: Vercel
+     only presents and filters data; it never imports.
+3. Deploy: `npx vercel deploy --prod` from `frontend/`, or push to the
+   connected branch.
+
+Limits of serverless hosting:
+
+- When `VERCEL` is set the server skips migrations. Apply them by running the
+  Docker `app` once against the same database, or by running `npm run import`.
+- Import data from your machine with the script (below); Vercel serves what is
+  in the database.
+- There is no authentication (see below); a public Vercel URL exposes layer deletion. Enable Vercel Deployment Protection.
+
+## Importing data
+
+CSV files are imported with a local script that writes straight into the
+PostgreSQL named by `DATABASE_URL`; the web app (including Vercel) only
+presents and filters data.
+
+```sh
+scripts/import_csv.sh path/to/file.csv        # or: cd frontend && npm run import -- path/to/file.csv
+```
+
+- `DATABASE_URL` comes from the environment, else from `backend/docker/.env`.
+  The password is never printed.
+- The script applies pending migrations, then imports the file in one
+  transaction: either the whole layer is stored or nothing is.
+- The layer is named after the file (`basaltos_terra.csv` -> `basaltos_terra`).
+  Importing the same file name again replaces that layer.
+- The CSV needs latitude and longitude columns; rows without valid coordinates
+  are skipped and counted. It exits non-zero with a message on any error.
+- Reload the app to see a new layer.
+
 ## Known limitation
 
-There is no authentication yet: anyone who can reach the app can start imports
-and delete layers. Keep it on a trusted network.
+There is no authentication yet: anyone who can reach the app can delete layers. Keep it on a trusted network.

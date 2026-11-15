@@ -1,13 +1,12 @@
 # Backend
 
-This directory is a Docker Compose application made of PostgreSQL, Redis and one application image run as two services:
+This directory is a Docker Compose application made of PostgreSQL and one application image:
 
-- `app` and `worker` are built from the Nuxt project in `../frontend` (Docker
-  definition in `../frontend/Dockerfile`): `app` serves the SPA, the HTTP API and
-  Server-Sent Events; `worker` runs the asynchronous CSV imports and reads files
-  from `DATA_DIR` (mounted read-only). The application code is in `frontend/server/`.
-- `postgres` is PostgreSQL with the `pgvector` extension enabled.
-- `queue` is Redis, a small queue/broker suitable for background work.
+- `app` is built from the Nuxt project in `../frontend` (Docker definition in
+  `../frontend/Dockerfile`) and serves the SPA and the read-only HTTP API. The
+  application code is in `frontend/server/`. CSV files are loaded with
+  `scripts/import_csv.sh`, not through the app.
+- `postgres` is PostgreSQL with the `pgvector` and PostGIS extensions.
 
 Use the backend-owned Compose wrapper from the project root:
 
@@ -35,7 +34,7 @@ application migrations belong in `services/database/migrations/`.
 `bash scripts/deploy_backend.sh` from the project root deploys every Compose
 service to a persistent Linux VM. Set `BACKEND_SSH_HOST`, `BACKEND_DEPLOY_DIR`,
 and `BACKEND_DOMAIN` first. The tracked `docker/compose.vm.yaml` adds a Caddy
-HTTPS reverse proxy and removes the API's direct host port. Internal API,
-database, and queue communication uses Docker service DNS. Named volumes persist
+HTTPS reverse proxy and removes the API's direct host port. Internal API
+and database communication uses Docker service DNS. Named volumes persist
 across container replacements and deployments on the same VM.
 See `../@docs/DEPLOYMENT.md` for setup, operations, and backup responsibilities.

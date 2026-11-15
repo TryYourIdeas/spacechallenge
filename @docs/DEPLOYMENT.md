@@ -37,7 +37,7 @@ Wrangler offers to create the Pages project. For CI create it first with
 ## Backend → persistent Docker VM
 
 Use a Linux VM with persistent disk and sufficient space for container images,
-PostgreSQL/pgvector, Redis, build caches, and source releases. Any provider is
+PostgreSQL/pgvector, build caches, and source releases. Any provider is
 supported. Keep Docker's data directory on persistent storage. Enable the Docker
 service at boot; the Compose services use `restart: unless-stopped`.
 
@@ -51,7 +51,7 @@ Before deploying:
    host's identity with a normal SSH connection first. The script requires a
    known host and noninteractive authentication; it never disables host checks.
 3. Point `api.example.com` at the VM. Allow SSH and public inbound TCP 80/443;
-   keep database and Redis ports private. Use a dedicated VM or ensure ports
+   keep the database port private. Use a dedicated VM or ensure ports
    80/443 are free for the included Caddy proxy. DNS must resolve to this VM for
    Caddy's automatic HTTPS certificate validation.
 4. Pick a stable absolute deployment directory, for example `/srv/my-team`,
@@ -75,23 +75,23 @@ Optional variables:
   different name to protect volume identity. Set it explicitly in CI, where
   checkout directory names can differ from developer machines.
 - `BACKEND_SSH_PORT`: optional SSH port; otherwise SSH config supplies it.
-- `BACKEND_HEALTH_PATH`: endpoint returning HTTP 2xx, default `/`; `/readyz` also checks PostgreSQL and Redis.
+- `BACKEND_HEALTH_PATH`: endpoint returning HTTP 2xx, default `/`; `/readyz` also checks PostgreSQL.
 
 The script uploads **only backend source**, excluding laptop `.env` files,
 local Compose overrides, Git metadata, and common dependency caches. It creates
 a unique source release, builds images on the VM for that machine's architecture,
-and starts every Compose service with `--wait`. The `app` and `worker` services
-share one image built from the Nuxt project in `frontend/` by
+and starts every Compose service with `--wait`. The `app` service
+uses one image built from the Nuxt project in `frontend/` by
 `frontend/Dockerfile`; local application compilers are unnecessary.
 The script uploads both `backend/` and `frontend/` (without `node_modules`,
 `.nuxt`, `.output`, or `.env*`). Private images need registry authentication on
 the VM; image-only services are pulled before startup.
 
 The hosted topology adds Caddy on ports 80/443 and proxies to `app` over the
-private Docker network. PostgreSQL and Redis use service DNS and have no public
+private Docker network. PostgreSQL uses service DNS and have no public
 ports. The local app port remains loopback-only for local development. The API runs
-inside the `app` service (`frontend/server/`); the `worker` service consumes the
-import queue. Both apply database migrations at startup. See
+inside the `app` service (`frontend/server/`); it applies database migrations at
+startup. See
 `@docs/architecture/ARCHITECTURE.md`.
 
 After the services start, deployment checks the API's HTTPS health URL. Only
@@ -123,12 +123,11 @@ Docker build arguments, or environment examples. Restart/redeploy services after
 changing environment settings. Changing the PostgreSQL password environment
 variable alone does not rotate an already initialized database role.
 
-Compose uses the same project name on each deploy, so PostgreSQL data, Redis
-AOF data, and Caddy certificates live in stable named Docker volumes outside
+Compose uses the same project name on each deploy, so PostgreSQL data
+and Caddy certificates live in stable named Docker volumes outside
 source releases. Container recreation and VM reboots preserve these volumes
 when the underlying VM disk is retained. The deploy script does not run
-`down --volumes` or volume pruning. Keep Redis job handling idempotent and
-recoverable; filesystem persistence alone is not a guarantee of job delivery.
+`down --volumes` or volume pruning.
 
 Persistent disk is not a backup. Arrange database-aware backups, protect the
 server environment file, and test restore before storing important data.
@@ -161,11 +160,11 @@ Use the actual project name stored in `shared/compose-project`.
 - [Compose configuration merging](https://docs.docker.com/reference/compose-file/merge/)
 - [Caddy HTTPS reverse proxy](https://caddyserver.com/docs/quick-starts/reverse-proxy)
 
-## Import data directory
+## Importing data
 
-The API and worker read importable CSV files from `DATA_DIR`, mounted read-only
-at `/data/source`. Deployments upload only `backend/`, so the repository's
-`data/` folder is not on the VM: create a persistent directory outside the
-release folders, copy the CSV files there yourself, and set its absolute path
-as `DATA_DIR` in `shared/backend.env`. Without it Compose falls back to a
-nonexistent `../../data` path and the file list will be empty.
+Data is imported from a developer machine with `scripts/import_csv.sh <file.csv>`,
+which connects to the database named by `DATABASE_URL` (environment, else
+`backend/docker/.env`). To import into the VM's database, reach PostgreSQL
+through an SSH tunnel or a private network address; PostgreSQL is not exposed
+publicly. The VM needs no data directory.
+

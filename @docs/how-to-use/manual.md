@@ -8,7 +8,7 @@ How to use Layer Explorer in the browser. Start the application first; see
 - **Map** (right/main area): a dark world map. Zoom with the `+`/`-` buttons,
   mouse wheel or pinch; drag to pan.
 - **Layer panel**: lists every layer with a checkbox, a status line, and
-  Remove/Delete controls, plus the **Import CSV…** button and import tasks.
+  Remove/Delete controls, and any load error.
 - **Point details**: shows the fields of the selected point.
 
 ## Show and hide layers
@@ -33,29 +33,31 @@ points into numbered clusters.
 
 - Click a cluster, or focus it and press Enter, to zoom into it.
 - If its points share coordinates and zooming cannot separate them, a popup
-  lists them so you can pick one.
+  lists them so you can pick one. The dark popup shows the count and layer,
+  and each entry shows the point name (wrapped to two lines, full text on hover)
+  with its id below and the layer colour on its edge. The list scrolls
+  vertically only; the first entry is focused, and Esc or the close button
+  dismisses the popup.
 - The map refreshes automatically after you pan or zoom. If the refresh fails,
   use **Retry** on the map.
 
-## Import a CSV file
+## Add a CSV layer
 
-1. Put the CSV in the server's data directory (`data/` by default).
-2. Click **Import CSV…** and choose a file from the list.
-3. Watch the task: queued, processing (rows read, then points imported), done
-   or failed. Progress updates live; if the live connection drops, a hint says
-   so.
-4. When done, the new layer appears in the panel and on the map. Imported layers
-   are stored in the database and are still there after a page reload.
+Importing is done on your machine, not in the browser:
+
+```sh
+scripts/import_csv.sh path/to/file.csv
+```
+
+Then reload the page: the new layer appears in the panel and on the map and
+stays after later reloads. See [config.md](config.md#importing-data) for
+details. Importing the same file name again replaces that layer.
 
 CSV requirements:
 
 - A latitude column (`lat` or `latitude`) and a longitude column (`lon`, `lng`
   or `longitude`), in WGS84 degrees. Other columns are kept as point fields.
 - Rows with missing or out-of-range coordinates are skipped and counted.
-- Importing a file that is already importing is refused.
-
-Failed imports can be retried by choosing the file again. File problems are not
-retried automatically; other errors are retried up to 3 times.
 
 ## Remove a layer
 
@@ -66,7 +68,6 @@ retried automatically; other errors are retried up to 3 times.
 ## Keyboard and accessibility
 
 - All controls and map markers are keyboard focusable; Enter activates them.
-- Progress and results are announced to screen readers.
 - State is never colour-only: text accompanies every status.
 - Animations respect the reduced-motion setting.
 
@@ -74,8 +75,7 @@ retried automatically; other errors are retried up to 3 times.
 
 | Symptom | Check |
 | --- | --- |
-| Only the three built-in layers appear, no Import button works | API disabled: `DATABASE_URL`/`QUEUE_URL` missing, or the backend is not running |
-| "No CSV files found" | Put `*.csv` files in `DATA_DIR` (default `data/`) |
-| Import stays queued | The `worker` service is not running: `./backend/docker/compose.sh ps` |
+| Only the three built-in layers appear | API disabled: `DATABASE_URL` missing, or the backend is not running |
 | Browser CORS errors on a separate front end | Add its origin to `CORS_ORIGINS` |
-| Import failed | Read the message on the task; check the file has latitude and longitude columns |
+| `scripts/import_csv.sh` fails | Read its message; check the file has latitude and longitude columns and `DATABASE_URL` is reachable |
+| Imported layer missing | Reload the page; confirm the script printed `Imported N rows` |

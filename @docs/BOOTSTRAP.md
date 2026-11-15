@@ -14,10 +14,11 @@ scripts are optional next steps for your team to configure and run separately.
 - `backend/docker/compose.sh` is the shared Compose entry point and creates a
   local `.env` from the example if missing. Keep `.env` out of version control.
 - `http://localhost:8080` is the `app` service (SPA and `/api`), built from
-  `frontend/` by `frontend/Dockerfile`; a `worker` service runs imports.
+  `frontend/` by `frontend/Dockerfile`. CSV files are imported by
+  `scripts/import_csv.sh`, not by a service.
 - PostgreSQL enables pgvector when a new volume is initialized. Store later
   schema changes as forward migrations; record decisions in `SCHEMA.md`.
-- Use `postgres:5432` and `redis://queue:6379/0` inside containers. Host-side
+- Use `postgres:5432` inside containers. Host-side
   frontend clients talk to the API, never directly to these services.
 - Deploy scripts target Cloudflare Pages and a persistent
   Docker VM. Read `DEPLOYMENT.md` for SSH, HTTPS, server secrets, and backups.

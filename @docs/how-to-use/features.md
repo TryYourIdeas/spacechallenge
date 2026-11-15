@@ -16,16 +16,13 @@ What Layer Explorer does today. Keep this list in step with the code.
 
 ## Server-side layers from CSV
 
-- Browse `*.csv` files in the server data directory (`GET /api/files`).
-- Asynchronous import into PostgreSQL through a Redis/BullMQ queue and a
-  separate worker (`POST /api/imports`).
-- Live progress over Server-Sent Events (`GET /api/events`): a snapshot of
-  recent tasks, then one event per change. Newest `updatedAt` wins.
-- Idempotent, replay-safe imports (layer id = task id), up to 3 attempts with
-  backoff, non-retryable file errors, stale-task recovery after 2 minutes.
-- Duplicate imports of the same file are rejected with `409`.
+- Imported outside the app by a local script (`scripts/import_csv.sh <file.csv>`
+  or `npm run import -- <file.csv>`) that writes straight into PostgreSQL via
+  `DATABASE_URL`; the web app only presents and filters.
+- One transaction per file: all of the layer or nothing.
+- Re-importing a file name replaces its layer (layer id derives from the name).
 - Invalid-coordinate rows are skipped and counted.
-- Layers persist across reloads and can be deleted.
+- Layers persist across reloads and can be deleted from the panel.
 
 ## Viewport clustering
 
@@ -36,17 +33,13 @@ What Layer Explorer does today. Keep this list in step with the code.
 - Single-point cells come back as plain points; clusters carry count and bounds.
 - Antimeridian-aware bounding boxes.
 - Click/Enter on a cluster zooms in; coincident points open in a popup list
-  (up to 50).
+  (up to 50) in a themed popup with wrapped names, ids and layer colour.
 - Debounced refresh on map move, with the previous request aborted.
 
 ## API
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/files` | Importable CSV files |
-| POST | `/api/imports` | Start an import |
-| GET | `/api/tasks`, `/api/tasks/:id` | Task status |
-| GET | `/api/events` | SSE task stream |
 | GET | `/api/layers`, `/api/layers/:id` | Layer index and summary |
 | GET | `/api/layers/:id/clusters` | Clustered viewport points |
 | GET | `/api/layers/:id/points` | Points in a small box |
@@ -56,8 +49,8 @@ What Layer Explorer does today. Keep this list in step with the code.
 
 ## Platform and operations
 
-- One Nuxt 4 project: SPA, Nitro API and worker in a single image, run as `app`
-  and `worker` services.
+- One Nuxt 4 project: SPA and Nitro API in a single image, run as the `app`
+  service. No worker or queue.
 - PostgreSQL + pgvector (with PostGIS for geometry) as the system of record;
   Redis as transport only.
 - Forward-only SQL migrations applied at startup under an advisory lock.

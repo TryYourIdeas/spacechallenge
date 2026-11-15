@@ -1,15 +1,15 @@
 # spacechallenge
 
 Layer Explorer: a Nuxt 4 / Vue 3 SPA that shows point layers on a Leaflet map.
-Built-in layers are static JSON; CSV files from the server's data directory can
-be imported asynchronously into PostgreSQL and streamed to the browser over
-Server-Sent Events.
+Built-in layers are static JSON; CSV files are imported into PostgreSQL with a
+local script (`scripts/import_csv.sh <file.csv>`) and served to the browser
+filtered by viewport. The web app (including Vercel) only presents and filters.
 
 - `frontend/app/` is the SPA; `frontend/server/` is the Nitro API and the import
-  worker code (one Nuxt project, one Docker image).
-- `backend/` holds the Docker Compose topology: `app` (SPA + API), `worker`,
-  PostgreSQL with pgvector, and Redis (BullMQ queue).
-- `data/` holds the CSV files offered for import.
+  script (one Nuxt project, one Docker image).
+- `backend/` holds the Docker Compose topology: `app` (SPA + API) and
+  PostgreSQL with pgvector and PostGIS.
+- `data/` is where you may keep CSV files to import (git-ignored).
 
 See [@docs/architecture/ARCHITECTURE.md](@docs/architecture/ARCHITECTURE.md) for
 the architecture.
@@ -20,7 +20,7 @@ the architecture.
    `./backend/docker/compose.sh up --build --detach --wait`.
 2. Open `http://localhost:8080` (the `app` service serves the SPA and `/api`).
 3. For UI work, run `npm install && npm run dev` in `frontend/`; it needs
-   `DATABASE_URL` and `QUEUE_URL` for the API routes, otherwise the API disables
+   `DATABASE_URL` for the API routes, otherwise the API disables
    itself and static layers still work.
 4. Use `bash scripts/start.sh` for the interactive project menu. If Node/npm is
    already installed, `npm start` opens the same menu; npm is optional.
@@ -37,5 +37,5 @@ and [@docs/BOOTSTRAP.md](@docs/BOOTSTRAP.md) for details.
   Use `--dry-run` to preview without connecting.
 
 Read [@docs/DEPLOYMENT.md](@docs/DEPLOYMENT.md) for setup and commands. Both local
-and VM-hosted Compose use persistent database and queue volumes. Back up the VM's
+and VM-hosted Compose use persistent database volumes. Back up the VM's
 data and server environment file before storing important data.
