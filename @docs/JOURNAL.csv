@@ -63,3 +63,5 @@ Remove layer deletion so the app is fully read-only,remove it so the app is full
 Add scripts to list and delete layers,create a script that shows the existing layers,2026-11-15T14:34:10-03:00,unavailable,unavailable
 Add script to delete a layer from the database,create a script that allows to delete a layer from the database,2026-11-15T14:34:10-03:00,unavailable,unavailable
 Empty the built-in layer manifest,"yes, remove Launch sites, Ground stations and Meteorite finds from the manifest",2026-11-15T14:37:53-03:00,unavailable,unavailable
+Show point data in a closeable right-side dialog,when a point is clicked the point data is shown in a form on the left below the layer list. Instead of that show the point data on the right with a closeable dialog,2026-11-15T15:19:31-03:00,unavailable,unavailable
+Wire circle props into LayerPanel; commit and push,"yes, wire those props, then commit and push",2026-11-15T15:29:10-03:00,unavailable,unavailable

@@ -13,12 +13,18 @@ const uid = useId()
 </script>
 
 <template>
-  <section class="card" aria-labelledby="point-heading">
-    <h2 id="point-heading" ref="heading" tabindex="-1">Point details</h2>
+  <aside
+    v-if="point" class="dialog" role="dialog" aria-modal="false" aria-labelledby="point-heading"
+    @keydown.esc.stop="emit('close')"
+  >
+    <header class="head">
+      <h2 id="point-heading" ref="heading" tabindex="-1">Point details</h2>
+      <button type="button" class="x" aria-label="Close point details" @click="emit('close')">
+        <span aria-hidden="true">&times;</span>
+      </button>
+    </header>
 
-    <p v-if="!point" class="muted">Select a point on the map to see its data.</p>
-
-    <form v-else :key="`${point.layer.id}/${point.row.id}`" aria-live="polite" @submit.prevent>
+    <form :key="`${point.layer.id}/${point.row.id}`" aria-live="polite" @submit.prevent>
       <p class="layer">
         <span class="chip" :style="{ '--pt': point.layer.color }" aria-hidden="true" />
         {{ point.layer.label }}
@@ -47,14 +53,16 @@ const uid = useId()
         </div>
       </div>
 
-      <button type="button" @click="emit('close')">Clear selection</button>
+      <button type="button" @click="emit('close')">Close</button>
     </form>
-  </section>
+  </aside>
 </template>
 
 <style scoped>
-.card { border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); padding: 1rem; }
-h2 { margin: 0 0 0.75rem; font-size: 1.0625rem; }
+.dialog { position: absolute; top: 1rem; right: 1rem; bottom: 1rem; z-index: 1100; width: min(360px, calc(100% - 2rem)); overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); padding: 1rem; box-shadow: 0 8px 32px rgb(0 0 0 / 0.5); }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; }
+h2 { margin: 0; font-size: 1.0625rem; }
+.x { min-width: 40px; padding: 0; font-size: 1.5rem; line-height: 1; }
 h2:focus-visible { border-radius: 4px; }
 .muted { color: var(--color-text-secondary); margin: 0; }
 .loading { margin-bottom: 0.75rem; }
@@ -71,4 +79,5 @@ input:focus-visible { border-color: var(--color-accent-arctic-cyan); }
 .coords input { font-family: var(--font-mono); }
 button { background: var(--color-surface-raised); color: var(--color-text-primary); border: 1px solid var(--color-accent-royal-purple); border-radius: 6px; padding: 0.5rem 1rem; min-height: 40px; cursor: pointer; font: inherit; }
 button:hover { border-color: var(--color-accent-arctic-cyan); }
+@media (max-width: 800px) { .dialog { top: auto; max-height: 70%; left: 1rem; width: auto; } }
 </style>

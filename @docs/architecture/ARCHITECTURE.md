@@ -65,8 +65,8 @@ Nuxt 4 / Vue 3 SPA with Leaflet. Geist fonts and design tokens live in
 `app/assets/css/tokens.css`.
 
 - `app.vue` composes the shell: a side panel (`LayerPanel.vue`), the map
-  (`MapView.client.vue`, client-only, OSM tiles) and a point detail form
-  (`PointForm.vue`). Selection is dropped when its layer is hidden.
+  (`MapView.client.vue`, client-only, OSM tiles) and a closeable point-details dialog
+  on the right of the map (`PointForm.vue`). Selection is dropped when its layer is hidden.
 - `composables/useLayers.ts` is the single data boundary. It:
   1. loads `layers.json` and each static layer table from `public/data/`;
   2. calls the API for server layers (`GET /api/layers`, `GET /api/layers/:id`

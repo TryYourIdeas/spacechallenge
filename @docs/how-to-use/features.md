@@ -14,7 +14,7 @@ What Layer Explorer does today. Keep this list in step with the code.
 - Distinct marker shape and colour per layer; per-layer visibility toggles.
 - Per-layer status: point count, skipped invalid rows, loading and error states
   with retry.
-- Point details panel with all fields of the selected point.
+- Clicking a point opens a closeable dialog on the right of the map with all its fields (close with the × button, Close, or Esc).
 
 ## Server-side layers from CSV
 

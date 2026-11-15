@@ -22,9 +22,9 @@ While a layer loads you see "Loading…"; a failed layer shows an error with a
 
 ## Inspect a point
 
-Click (or focus and press Enter on) a marker. The **Point details** panel shows
-its fields, latitude and longitude. For imported layers, every CSV column is
-loaded on demand. **Clear selection** closes it.
+Click (or focus and press Enter on) a marker. A **Point details** dialog opens on the right
+of the map and shows its fields, latitude and longitude. For imported layers, every CSV column is
+loaded on demand. Close it with the × button, **Close**, or Esc; the map stays usable, and clicking another point replaces the content.
 
 ## Clusters
 

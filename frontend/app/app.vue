@@ -312,7 +312,7 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
 
 <template>
   <div class="shell">
-    <a class="skip" href="#point-heading">Skip to point details</a>
+    <a v-if="selected" class="skip" href="#point-heading">Skip to point details</a>
     <aside class="side">
       <header>
         <h1>Layer Explorer</h1>
@@ -330,6 +330,7 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
         :api-error="apiError"
         :global-filter="globalFilter" :layer-filters="layerFilters" :remote-counts="remoteCounts"
         :picking-origin="pickingOrigin" :has-selected-point="!!selected"
+        :adding-circle="addingCircle" :active-circle-id="activeCircleId"
         @toggle="toggle" @retry="retryLayer"
         @update:global-filter="updateGlobalFilter"
         @update:layer-filter="updateLayerFilter"
@@ -341,8 +342,6 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
         @remove-circle="removeCircle"
         @fit-filtered="mapView?.fitFiltered()"
       />
-
-      <PointForm ref="form" :point="selected" @close="clearSelection" @retry="selected && loadDetail(selected)" />
     </aside>
 
     <main class="main">
@@ -355,6 +354,7 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
           @select="onSelect" @pick-origin="onPickOrigin" @select-circle="selectCircle" @remote-counts="remoteCounts = $event"
         />
       </ClientOnly>
+      <PointForm ref="form" :point="selected" @close="clearSelection" @retry="selected && loadDetail(selected)" />
     </main>
   </div>
 </template>
@@ -364,7 +364,7 @@ async function onSelect(point: SelectedPoint, viaKeyboard: boolean) {
 .side { overflow-y: auto; padding: 1rem; display: grid; gap: 1rem; align-content: start; border-right: 1px solid var(--color-border); background: var(--color-bg-deep-space); }
 h1 { margin: 0; font-size: 1.5rem; background: linear-gradient(90deg, var(--color-accent-arctic-cyan), #b79cff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 header p { margin: 0.25rem 0 0; color: var(--color-text-secondary); font-size: 0.875rem; }
-.main { min-height: 0; }
+.main { min-height: 0; position: relative; }
 .note { margin: 0; color: var(--color-text-secondary); }
 .err { color: var(--color-danger); }
 .err button { background: var(--color-surface-raised); color: var(--color-text-primary); border: 1px solid var(--color-accent-royal-purple); border-radius: 6px; padding: 0.4rem 1rem; min-height: 40px; cursor: pointer; font: inherit; }
