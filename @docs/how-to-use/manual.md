@@ -69,6 +69,44 @@ delete an imported layer for good, remove it in the database
 (`DELETE FROM layers WHERE label = '<name>'`; its points go with it), or import a
 corrected file of the same name to replace it.
 
+## Deploy to Vercel
+
+The app is hosted at <https://spacechallenge-gamma.vercel.app/>. The Vercel
+project is connected to the GitHub repository `TryYourIdeas/spacechallenge`, so
+a push to `main` builds and publishes a new production deployment (other
+branches get preview URLs). No CLI login is needed for this flow.
+
+Project settings (Vercel dashboard, Project Settings):
+
+| Setting | Value |
+| --- | --- |
+| Root Directory | `frontend` |
+| Build command | `npm run build:server` (from `frontend/vercel.json`) |
+| Install command | `npm ci` (from `frontend/vercel.json`) |
+| Environment variable `DATABASE_URL` | The PostgreSQL connection string, in Production and Preview |
+| `NUXT_PUBLIC_API_BASE` | Leave empty (same origin) |
+
+To publish a change:
+
+1. Commit and push to `main`: `git push origin main`.
+2. In the Vercel dashboard, open **Deployments** and wait for the new
+   production deployment to reach **Ready**; read its build log if it fails.
+3. Check the result:
+
+   ```sh
+   curl -s https://spacechallenge-gamma.vercel.app/readyz    # {"status":"ready"}
+   curl -s https://spacechallenge-gamma.vercel.app/api/layers # JSON list of layers
+   ```
+
+   Both should return JSON, not the HTML page. HTML means the deployment is an
+   old or static build without the server routes.
+
+Vercel only presents data. Migrations and CSV imports run from your machine
+(see [Add a CSV layer](#add-a-csv-layer) and
+[config.md](config.md#deploying-the-nuxt-app-to-vercel)); the database must
+accept connections from Vercel's IP addresses. The site has no login, so enable
+Deployment Protection if the data is private.
+
 ## Keyboard and accessibility
 
 - All controls and map markers are keyboard focusable; Enter activates them.
@@ -83,3 +121,4 @@ corrected file of the same name to replace it.
 | Browser CORS errors on a separate front end | Add its origin to `CORS_ORIGINS` |
 | `scripts/import_csv.sh` fails | Read its message; check the file has latitude and longitude columns and `DATABASE_URL` is reachable |
 | Imported layer missing | Reload the page; confirm the script printed `Imported N rows` |
+| Vercel site shows the page but `/readyz` or `/api/layers` return HTML or 404 | The live deployment is stale or static: check the latest deployment in Vercel and its build log |
